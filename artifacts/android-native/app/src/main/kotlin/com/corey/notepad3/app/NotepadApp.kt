@@ -1,5 +1,7 @@
 package com.corey.notepad3.app
 
+import android.app.Activity
+import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
@@ -11,6 +13,7 @@ import android.text.TextWatcher
 import android.text.method.KeyListener
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -19,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -34,9 +38,16 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -53,9 +64,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -77,6 +93,8 @@ import com.corey.notepad3.models.TextDocument
 import com.corey.notepad3.persistence.DocumentStore
 import com.corey.notepad3.theme.Palette
 import com.corey.notepad3.theme.ThemeController
+import com.corey.notepad3.theme.ThemeName
+import com.corey.notepad3.theme.ThemePreference
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -93,7 +111,10 @@ fun NotepadApp(
 ) {
     val snapshot by store.state.collectAsState()
     val palette by themeController.palette.collectAsState()
+    val resolvedTheme by themeController.resolvedTheme.collectAsState()
     val layoutMode by editorPreferenceController.layoutMode.collectAsState()
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val active = snapshot.documents.firstOrNull { it.id == snapshot.activeId } ?: snapshot.documents.first()
     val histories = remember { mutableStateMapOf<String, EditorHistory>() }
     val selections = remember { mutableStateMapOf<String, TextSelection>() }
@@ -113,6 +134,7 @@ fun NotepadApp(
     var showMore by rememberSaveable { mutableStateOf(false) }
     var readMode by rememberSaveable { mutableStateOf(false) }
     var zenMode by rememberSaveable { mutableStateOf(false) }
+    var editorFocused by rememberSaveable { mutableStateOf(false) }
     val showingMarkdownPreview = previewMode && active.language == DocumentLanguage.MARKDOWN
     val canUndo = historyVersion.let { history.canUndo }
     val canRedo = historyVersion.let { history.canRedo }
@@ -221,6 +243,102 @@ fun NotepadApp(
         if (!readMode) commitEdit(EditorCommands.sortLines(active.body))
     }
 
+    fun selectWord() {
+        applySelection(EditorCommands.selectWord(active.body, activeSelection.min))
+    }
+
+    fun selectLine() {
+        applySelection(EditorCommands.selectLine(active.body, activeSelection.min))
+    }
+
+    fun selectParagraph() {
+        applySelection(EditorCommands.selectParagraph(active.body, activeSelection.min))
+    }
+
+    fun copySelection() {
+        val safeSelection = activeSelection.clamped(active.body.length)
+        if (safeSelection.min == safeSelection.max) return
+        clipboard.setText(AnnotatedString(active.body.substring(safeSelection.min, safeSelection.max)))
+        showMore = false
+    }
+
+    fun cutSelection() {
+        val safeSelection = activeSelection.clamped(active.body.length)
+        if (readMode || safeSelection.min == safeSelection.max) return
+        clipboard.setText(AnnotatedString(active.body.substring(safeSelection.min, safeSelection.max)))
+        commitEdit(EditorCommands.insertText(active.body, safeSelection, ""))
+        showMore = false
+    }
+
+    fun pasteFromClipboard() {
+        if (readMode) return
+        val text = clipboard.getText()?.text.orEmpty()
+        if (text.isNotEmpty()) {
+            commitEdit(EditorCommands.insertText(active.body, activeSelection, text))
+        }
+        showMore = false
+    }
+
+    fun moveCursorBy(delta: Int) {
+        val next = (activeSelection.min + delta).coerceIn(0, active.body.length)
+        selections[active.id] = TextSelection(next)
+    }
+
+    fun moveCursorVertical(direction: Int) {
+        val body = active.body
+        val caret = activeSelection.min.coerceIn(0, body.length)
+        val lineStart = body.lastIndexOf('\n', (caret - 1).coerceAtLeast(0)) + 1
+        val column = caret - lineStart
+        if (direction < 0) {
+            if (lineStart == 0) {
+                selections[active.id] = TextSelection(0)
+                return
+            }
+            val previousLineEnd = lineStart - 1
+            val previousLineStart = body.lastIndexOf('\n', (previousLineEnd - 1).coerceAtLeast(0)) + 1
+            selections[active.id] = TextSelection((previousLineStart + column).coerceAtMost(previousLineEnd))
+        } else {
+            val lineEnd = body.indexOf('\n', caret)
+            if (lineEnd < 0) {
+                selections[active.id] = TextSelection(body.length)
+                return
+            }
+            val nextLineStart = lineEnd + 1
+            val nextLineEnd = body.indexOf('\n', nextLineStart).takeIf { it >= 0 } ?: body.length
+            selections[active.id] = TextSelection((nextLineStart + column).coerceAtMost(nextLineEnd))
+        }
+    }
+
+    fun toggleReadMode() {
+        readMode = !readMode
+        showMore = false
+    }
+
+    fun openReplacePanel() {
+        showFind = true
+        showMore = false
+    }
+
+    fun setTheme(name: ThemeName) {
+        themeController.setThemePreference(ThemePreference.Named(name))
+        showMore = false
+    }
+
+    fun switchToClassic() {
+        editorPreferenceController.setLayoutMode(EditorLayoutMode.CLASSIC)
+        showMore = false
+    }
+
+    fun switchToMobile() {
+        editorPreferenceController.setLayoutMode(EditorLayoutMode.MOBILE)
+        showMore = false
+    }
+
+    fun hideKeyboard() {
+        context.hideSoftKeyboard()
+        editorFocused = false
+    }
+
     if (zenMode) {
         BackHandler {
             zenMode = false
@@ -236,42 +354,53 @@ fun NotepadApp(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(
-                        when {
-                            zenMode -> 0.dp
-                            layoutMode == EditorLayoutMode.CLASSIC -> 6.dp
-                            else -> 10.dp
-                        },
-                    ),
+                    .fillMaxSize(),
             ) {
                 if (!zenMode) {
                     WindowBar(
                         document = active,
                         palette = palette,
                         layoutMode = layoutMode,
+                        activeTheme = resolvedTheme,
                         compareEnabled = snapshot.documents.size > 1,
+                        compareActive = showCompare,
                         canUndo = canUndo,
                         canRedo = canRedo,
                         readOnly = readMode,
+                        zenMode = zenMode,
                         onCycleTheme = ::cycleTheme,
-                        onOpen = ::toggleDocumentsPanel,
+                        onThemeSelect = ::setTheme,
+                        onOpenDocuments = ::toggleDocumentsPanel,
+                        onOpenFile = onOpenFile,
                         onFind = ::toggleFindPanel,
+                        onReplace = ::openReplacePanel,
                         onCompare = ::toggleComparePanel,
                         onMore = ::toggleMorePanel,
                         onNew = store::createBlank,
+                        onDuplicateDocument = store::duplicateActive,
+                        onCloseDocument = { store.close(active.id) },
+                        onCloseOthers = { store.closeOthers(active.id) },
                         onUndo = ::undoEdit,
                         onRedo = ::redoEdit,
+                        onCut = ::cutSelection,
+                        onCopy = ::copySelection,
+                        onPaste = ::pasteFromClipboard,
                         onGotoLine = ::startGotoLine,
                         onSelectAll = ::selectAllText,
+                        onSelectWord = ::selectWord,
+                        onSelectLine = ::selectLine,
+                        onSelectParagraph = ::selectParagraph,
+                        onInsertDateTime = ::insertDateTime,
                         onDuplicateLine = ::duplicateLine,
                         onDeleteLine = ::deleteLine,
                         onTrim = ::trimSelection,
                         onSort = ::sortDocument,
-                        onToggleLayoutMode = ::toggleLayoutMode,
+                        onToggleReadMode = ::toggleReadMode,
+                        onToggleZenMode = ::toggleZenMode,
+                        onSwitchToMobile = ::switchToMobile,
                         onCloseApp = onCloseApp,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
                     DocumentStrip(
                         documents = snapshot.documents,
                         activeId = snapshot.activeId,
@@ -471,38 +600,86 @@ fun NotepadApp(
                 if (showingMarkdownPreview) {
                     MarkdownPreviewPane(document = active, palette = palette, modifier = Modifier.weight(1f))
                 } else {
-                    EditorTextArea(
-                        document = active,
-                        palette = palette,
-                        selection = activeSelection,
-                        readOnly = readMode,
-                        showLineNumbers = layoutMode == EditorLayoutMode.CLASSIC,
-                        onSelectionChange = ::rememberSelection,
-                        onBodyChange = { next, nextSelection ->
-                            if (!readMode) {
-                                selections[active.id] = nextSelection
-                                history.recordUserEdit(next)
-                                historyVersion += 1
-                                store.updateActive(body = next)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                    ) {
+                        EditorTextArea(
+                            document = active,
+                            palette = palette,
+                            selection = activeSelection,
+                            readOnly = readMode,
+                            showLineNumbers = layoutMode == EditorLayoutMode.CLASSIC,
+                            onSelectionChange = ::rememberSelection,
+                            onFocusChange = { editorFocused = it },
+                            onBodyChange = { next, nextSelection ->
+                                if (!readMode) {
+                                    selections[active.id] = nextSelection
+                                    history.recordUserEdit(next)
+                                    historyVersion += 1
+                                    store.updateActive(body = next)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        if (layoutMode == EditorLayoutMode.MOBILE && !zenMode && !editorFocused) {
+                            FloatingActionButton(
+                                onClick = store::createBlank,
+                                containerColor = palette.primary.toColor(),
+                                contentColor = palette.primaryForeground.toColor(),
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(18.dp),
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = "New document")
                             }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
+                        }
+                    }
                 }
                 if (!zenMode) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
                     StatusBar(document = active, selection = activeSelection, readOnly = readMode, palette = palette)
-                    Spacer(Modifier.height(8.dp))
-                    if (layoutMode.showMobileBottomBar) {
+                    Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
+                    if (layoutMode == EditorLayoutMode.MOBILE && editorFocused) {
+                        MobileKeyboardAccessory(
+                            palette = palette,
+                            canUndo = canUndo,
+                            canRedo = canRedo,
+                            canCut = activeSelection.min != activeSelection.max && !readMode,
+                            canPaste = !readMode,
+                            readOnly = readMode,
+                            findActive = showFind,
+                            compareActive = showCompare,
+                            onHideKeyboard = ::hideKeyboard,
+                            onUndo = ::undoEdit,
+                            onRedo = ::redoEdit,
+                            onCut = ::cutSelection,
+                            onCopy = ::copySelection,
+                            onPaste = ::pasteFromClipboard,
+                            onMoveLeft = { moveCursorBy(-1) },
+                            onMoveUp = { moveCursorVertical(-1) },
+                            onMoveDown = { moveCursorVertical(1) },
+                            onMoveRight = { moveCursorBy(1) },
+                            onFind = ::toggleFindPanel,
+                            onReplace = ::openReplacePanel,
+                            onInsertDateTime = ::insertDateTime,
+                            onSelectWord = ::selectWord,
+                            onSelectLine = ::selectLine,
+                            onCompare = ::toggleComparePanel,
+                            onMore = ::toggleMorePanel,
+                        )
+                    } else if (layoutMode.showMobileBottomBar) {
                         MobileBottomBar(
                             palette = palette,
                             compareEnabled = snapshot.documents.size > 1,
+                            compareActive = showCompare,
+                            findActive = showFind,
                             onOpen = ::toggleDocumentsPanel,
                             onFind = ::toggleFindPanel,
                             onCompare = ::toggleComparePanel,
-                            onToggleLayoutMode = ::toggleLayoutMode,
+                            onSwitchToClassic = ::switchToClassic,
                             onMore = ::toggleMorePanel,
-                            onNew = store::createBlank,
                         )
                     }
                 }
@@ -516,47 +693,101 @@ private fun WindowBar(
     document: TextDocument,
     palette: Palette,
     layoutMode: EditorLayoutMode,
+    activeTheme: ThemeName,
     compareEnabled: Boolean,
+    compareActive: Boolean,
     canUndo: Boolean,
     canRedo: Boolean,
     readOnly: Boolean,
+    zenMode: Boolean,
     onCycleTheme: () -> Unit,
-    onOpen: () -> Unit,
+    onThemeSelect: (ThemeName) -> Unit,
+    onOpenDocuments: () -> Unit,
+    onOpenFile: () -> Unit,
     onFind: () -> Unit,
+    onReplace: () -> Unit,
     onCompare: () -> Unit,
     onMore: () -> Unit,
     onNew: () -> Unit,
+    onDuplicateDocument: () -> Unit,
+    onCloseDocument: () -> Unit,
+    onCloseOthers: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onCut: () -> Unit,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit,
     onGotoLine: () -> Unit,
     onSelectAll: () -> Unit,
+    onSelectWord: () -> Unit,
+    onSelectLine: () -> Unit,
+    onSelectParagraph: () -> Unit,
+    onInsertDateTime: () -> Unit,
     onDuplicateLine: () -> Unit,
     onDeleteLine: () -> Unit,
     onTrim: () -> Unit,
     onSort: () -> Unit,
-    onToggleLayoutMode: () -> Unit,
+    onToggleReadMode: () -> Unit,
+    onToggleZenMode: () -> Unit,
+    onSwitchToMobile: () -> Unit,
     onCloseApp: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(if (layoutMode == EditorLayoutMode.CLASSIC) 3.dp else 6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp)) {
         if (layoutMode == EditorLayoutMode.CLASSIC) {
             ClassicCaptionBar(document = document, palette = palette, onCloseApp = onCloseApp)
             ClassicMenuBar(
                 palette = palette,
-                onOpen = onOpen,
+                activeTheme = activeTheme,
+                compareEnabled = compareEnabled,
+                compareActive = compareActive,
+                readOnly = readOnly,
+                zenMode = zenMode,
+                onNew = onNew,
+                onOpenFile = onOpenFile,
+                onOpenDocuments = onOpenDocuments,
+                onDuplicateDocument = onDuplicateDocument,
+                onCloseDocument = onCloseDocument,
+                onCloseOthers = onCloseOthers,
+                onUndo = onUndo,
+                onRedo = onRedo,
+                onCut = onCut,
+                onCopy = onCopy,
+                onPaste = onPaste,
+                onSelectAll = onSelectAll,
+                onSelectWord = onSelectWord,
+                onSelectLine = onSelectLine,
+                onSelectParagraph = onSelectParagraph,
                 onFind = onFind,
+                onReplace = onReplace,
+                onGotoLine = onGotoLine,
+                onInsertDateTime = onInsertDateTime,
+                onDuplicateLine = onDuplicateLine,
+                onDeleteLine = onDeleteLine,
+                onTrim = onTrim,
+                onSort = onSort,
+                onCompare = onCompare,
                 onMore = onMore,
-                onCycleTheme = onCycleTheme,
-                onToggleLayoutMode = onToggleLayoutMode,
+                onThemeSelect = onThemeSelect,
+                onToggleReadMode = onToggleReadMode,
+                onToggleZenMode = onToggleZenMode,
+                onSwitchToMobile = onSwitchToMobile,
             )
             ClassicToolRack(
                 palette = palette,
                 compareEnabled = compareEnabled,
+                compareActive = compareActive,
                 canUndo = canUndo,
                 canRedo = canRedo,
                 readOnly = readOnly,
                 onNew = onNew,
-                onOpen = onOpen,
+                onOpen = onOpenDocuments,
+                onOpenFile = onOpenFile,
+                onDuplicateDocument = onDuplicateDocument,
+                onCut = onCut,
+                onCopy = onCopy,
+                onPaste = onPaste,
                 onFind = onFind,
+                onReplace = onReplace,
                 onCompare = onCompare,
                 onMore = onMore,
                 onCycleTheme = onCycleTheme,
@@ -564,10 +795,15 @@ private fun WindowBar(
                 onRedo = onRedo,
                 onGotoLine = onGotoLine,
                 onSelectAll = onSelectAll,
+                onSelectLine = onSelectLine,
+                onSelectParagraph = onSelectParagraph,
+                onInsertDateTime = onInsertDateTime,
                 onDuplicateLine = onDuplicateLine,
                 onDeleteLine = onDeleteLine,
                 onTrim = onTrim,
                 onSort = onSort,
+                onToggleReadMode = onToggleReadMode,
+                onToggleZenMode = onToggleZenMode,
             )
         } else {
             MobileTitleBar(
@@ -594,22 +830,44 @@ private fun MobileTitleBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(42.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .height(52.dp)
+            .background(palette.background.toColor())
+            .padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = document.title,
             color = palette.foreground.toColor(),
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
             overflow = TextOverflow.Ellipsis,
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
-        ToolbarGlyph(label = "New", glyph = "+", palette = palette, onClick = onNew)
-        ToolbarGlyph(label = "Find", glyph = "Find", palette = palette, onClick = onFind)
-        ToolbarGlyph(label = "Theme", glyph = "Theme", palette = palette, onClick = onCycleTheme)
-        ToolbarGlyph(label = "More", glyph = "More", palette = palette, onClick = onMore)
+        RoundIconButton(icon = Icons.AutoMirrored.Filled.NoteAdd, label = "New document", palette = palette, onClick = onNew)
+        RoundIconButton(icon = Icons.Filled.Search, label = "Find", palette = palette, onClick = onFind)
+        RoundIconButton(icon = Icons.Filled.Brightness6, label = "Theme", palette = palette, onClick = onCycleTheme)
+        RoundIconButton(icon = Icons.Filled.MoreHoriz, label = "More", palette = palette, onClick = onMore)
+    }
+}
+
+@Composable
+private fun RoundIconButton(
+    icon: ImageVector,
+    label: String,
+    palette: Palette,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(42.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = palette.primary.toColor(),
+            modifier = Modifier.size(27.dp),
+        )
     }
 }
 
@@ -656,18 +914,69 @@ private fun ClassicCaptionBar(
 }
 
 @Composable
+private fun ClassicMiniIconButton(
+    icon: ImageVector,
+    label: String,
+    palette: Palette,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(width = 32.dp, height = 23.dp),
+    ) {
+        Icon(icon, contentDescription = label, tint = palette.foreground.toColor(), modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
 private fun ClassicMenuBar(
     palette: Palette,
-    onOpen: () -> Unit,
+    activeTheme: ThemeName,
+    compareEnabled: Boolean,
+    compareActive: Boolean,
+    readOnly: Boolean,
+    zenMode: Boolean,
+    onNew: () -> Unit,
+    onOpenFile: () -> Unit,
+    onOpenDocuments: () -> Unit,
+    onDuplicateDocument: () -> Unit,
+    onCloseDocument: () -> Unit,
+    onCloseOthers: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onCut: () -> Unit,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit,
+    onSelectAll: () -> Unit,
+    onSelectWord: () -> Unit,
+    onSelectLine: () -> Unit,
+    onSelectParagraph: () -> Unit,
     onFind: () -> Unit,
+    onReplace: () -> Unit,
+    onGotoLine: () -> Unit,
+    onInsertDateTime: () -> Unit,
+    onDuplicateLine: () -> Unit,
+    onDeleteLine: () -> Unit,
+    onTrim: () -> Unit,
+    onSort: () -> Unit,
+    onCompare: () -> Unit,
     onMore: () -> Unit,
-    onCycleTheme: () -> Unit,
-    onToggleLayoutMode: () -> Unit,
+    onThemeSelect: (ThemeName) -> Unit,
+    onToggleReadMode: () -> Unit,
+    onToggleZenMode: () -> Unit,
+    onSwitchToMobile: () -> Unit,
 ) {
+    var openMenu by remember { mutableStateOf<ClassicMenu?>(null) }
+
+    fun runMenuAction(action: () -> Unit) {
+        openMenu = null
+        action()
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(24.dp)
+            .height(25.dp)
             .background(
                 Brush.verticalGradient(
                     listOf(palette.chromeGradientStart.toColor(), palette.chromeGradientEnd.toColor()),
@@ -675,31 +984,203 @@ private fun ClassicMenuBar(
             )
             .border(1.dp, palette.border.toColor())
             .padding(horizontal = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(15.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MenuWord("File", palette, onOpen)
-        MenuWord("Edit", palette, onMore)
-        MenuWord("View", palette, onCycleTheme)
-        MenuWord("Tools", palette, onMore)
-        MenuWord("Help", palette, onFind)
+        ClassicMenuButton(
+            text = "File",
+            menu = ClassicMenu.FILE,
+            openMenu = openMenu,
+            palette = palette,
+            onOpen = { openMenu = it },
+        ) {
+            ClassicDropdownMenuItem("New", Icons.AutoMirrored.Filled.NoteAdd, palette) { runMenuAction(onNew) }
+            ClassicDropdownMenuItem("Open...", Icons.Filled.FolderOpen, palette) { runMenuAction(onOpenFile) }
+            ClassicDropdownMenuItem("Open documents...", Icons.AutoMirrored.Filled.List, palette) { runMenuAction(onOpenDocuments) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Save", Icons.Filled.Save, palette, enabled = false) {}
+            ClassicDropdownMenuItem("Duplicate", Icons.Filled.ContentCopy, palette) { runMenuAction(onDuplicateDocument) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Close", Icons.Filled.Close, palette) { runMenuAction(onCloseDocument) }
+            ClassicDropdownMenuItem("Close others", Icons.Filled.DisabledByDefault, palette) { runMenuAction(onCloseOthers) }
+        }
+        ClassicMenuButton(
+            text = "Edit",
+            menu = ClassicMenu.EDIT,
+            openMenu = openMenu,
+            palette = palette,
+            onOpen = { openMenu = it },
+        ) {
+            ClassicDropdownMenuItem("Undo", Icons.AutoMirrored.Filled.Undo, palette) { runMenuAction(onUndo) }
+            ClassicDropdownMenuItem("Redo", Icons.AutoMirrored.Filled.Redo, palette) { runMenuAction(onRedo) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Cut", Icons.Filled.ContentCut, palette, enabled = !readOnly) { runMenuAction(onCut) }
+            ClassicDropdownMenuItem("Copy", Icons.Filled.ContentCopy, palette) { runMenuAction(onCopy) }
+            ClassicDropdownMenuItem("Paste", Icons.Filled.ContentPaste, palette, enabled = !readOnly) { runMenuAction(onPaste) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Select all", Icons.Filled.SelectAll, palette) { runMenuAction(onSelectAll) }
+            ClassicDropdownMenuItem("Select word", Icons.AutoMirrored.Filled.ShortText, palette) { runMenuAction(onSelectWord) }
+            ClassicDropdownMenuItem("Select line", Icons.AutoMirrored.Filled.Subject, palette) { runMenuAction(onSelectLine) }
+            ClassicDropdownMenuItem("Select paragraph", Icons.Filled.FormatAlignJustify, palette) { runMenuAction(onSelectParagraph) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Find", Icons.Filled.Search, palette) { runMenuAction(onFind) }
+            ClassicDropdownMenuItem("Replace", Icons.Filled.FindReplace, palette) { runMenuAction(onReplace) }
+            ClassicDropdownMenuItem("Goto line...", Icons.AutoMirrored.Filled.KeyboardTab, palette) { runMenuAction(onGotoLine) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Insert date/time", Icons.Filled.AccessTime, palette, enabled = !readOnly) { runMenuAction(onInsertDateTime) }
+            ClassicDropdownMenuItem("Duplicate line", Icons.Filled.AddBox, palette, enabled = !readOnly) { runMenuAction(onDuplicateLine) }
+            ClassicDropdownMenuItem("Delete line", Icons.Filled.IndeterminateCheckBox, palette, enabled = !readOnly, destructive = true) { runMenuAction(onDeleteLine) }
+            ClassicDropdownMenuItem("Sort lines", Icons.Filled.SortByAlpha, palette, enabled = !readOnly) { runMenuAction(onSort) }
+            ClassicDropdownMenuItem("Trim trailing spaces", Icons.AutoMirrored.Filled.FormatAlignLeft, palette, enabled = !readOnly) { runMenuAction(onTrim) }
+        }
+        ClassicMenuButton(
+            text = "View",
+            menu = ClassicMenu.VIEW,
+            openMenu = openMenu,
+            palette = palette,
+            onOpen = { openMenu = it },
+        ) {
+            ClassicDropdownMenuItem("Switch to mobile layout", Icons.Filled.PhoneAndroid, palette) { runMenuAction(onSwitchToMobile) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Compare", Icons.Filled.ViewColumn, palette, enabled = compareEnabled, checked = compareActive) { runMenuAction(onCompare) }
+            ClassicDropdownMenuItem("Read mode", if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, palette, checked = readOnly) { runMenuAction(onToggleReadMode) }
+            ClassicDropdownMenuItem("Zen mode", if (zenMode) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen, palette, checked = zenMode) { runMenuAction(onToggleZenMode) }
+        }
+        ClassicMenuButton(
+            text = "Settings",
+            menu = ClassicMenu.SETTINGS,
+            openMenu = openMenu,
+            palette = palette,
+            onOpen = { openMenu = it },
+        ) {
+            ClassicDropdownMenuItem("Preferences...", Icons.Filled.Settings, palette) { runMenuAction(onMore) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuHeader("Theme", palette)
+            ThemeName.entries.filterNot { it == ThemeName.CUSTOM }.forEach { theme ->
+                ClassicDropdownMenuItem(
+                    text = theme.displayTitle,
+                    icon = Icons.Filled.Palette,
+                    palette = palette,
+                    checked = theme == activeTheme,
+                ) {
+                    runMenuAction { onThemeSelect(theme) }
+                }
+            }
+        }
+        ClassicMenuButton(
+            text = "Tools",
+            menu = ClassicMenu.TOOLS,
+            openMenu = openMenu,
+            palette = palette,
+            onOpen = { openMenu = it },
+        ) {
+            ClassicDropdownMenuItem("Compare documents", Icons.Filled.ViewColumn, palette, enabled = compareEnabled, checked = compareActive) { runMenuAction(onCompare) }
+            ClassicDropdownMenuItem("Language...", Icons.Filled.Code, palette) { runMenuAction(onMore) }
+            ClassicDropdownMenuItem("More commands...", Icons.Filled.MoreHoriz, palette) { runMenuAction(onMore) }
+        }
+        ClassicMenuButton(
+            text = "Help",
+            menu = ClassicMenu.HELP,
+            openMenu = openMenu,
+            palette = palette,
+            onOpen = { openMenu = it },
+        ) {
+            ClassicDropdownMenuItem("About Notepad 3++", Icons.Filled.Info, palette) { runMenuAction(onMore) }
+        }
         Spacer(Modifier.weight(1f))
-        Text(
-            "Mobile",
-            color = palette.mutedForeground.toColor(),
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-            modifier = Modifier.clickable(onClick = onToggleLayoutMode),
-        )
+        ClassicMiniIconButton(icon = Icons.Filled.PhoneAndroid, label = "Mobile layout", palette = palette, onClick = onSwitchToMobile)
     }
 }
 
 @Composable
-private fun MenuWord(text: String, palette: Palette, onClick: () -> Unit) {
+private fun ClassicMenuButton(
+    text: String,
+    menu: ClassicMenu,
+    openMenu: ClassicMenu?,
+    palette: Palette,
+    onOpen: (ClassicMenu?) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val selected = openMenu == menu
+    Box {
+        Text(
+            text = text,
+            color = if (selected) palette.primaryForeground.toColor() else palette.foreground.toColor(),
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Normal, fontSize = 13.sp),
+            modifier = Modifier
+                .height(23.dp)
+                .background(if (selected) palette.primary.toColor() else Color.Transparent)
+                .clickable { onOpen(if (selected) null else menu) }
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+        DropdownMenu(
+            expanded = selected,
+            onDismissRequest = { onOpen(null) },
+            modifier = Modifier
+                .background(palette.card.toColor())
+                .border(1.dp, palette.border.toColor()),
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun ClassicDropdownMenuItem(
+    text: String,
+    icon: ImageVector,
+    palette: Palette,
+    enabled: Boolean = true,
+    checked: Boolean = false,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val color = when {
+        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.55f)
+        destructive -> palette.destructive.toColor()
+        else -> palette.foreground.toColor()
+    }
+    Row(
+        modifier = Modifier
+            .widthIn(min = 210.dp)
+            .height(28.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(start = 8.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
+        Text(
+            text = text,
+            color = color,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        if (checked) {
+            Icon(Icons.Filled.Check, contentDescription = null, tint = palette.primary.toColor(), modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun ClassicDropdownSeparator(palette: Palette) {
+    Spacer(
+        Modifier
+            .padding(vertical = 3.dp)
+            .height(1.dp)
+            .widthIn(min = 210.dp)
+            .background(palette.border.toColor().copy(alpha = 0.55f)),
+    )
+}
+
+@Composable
+private fun ClassicDropdownMenuHeader(text: String, palette: Palette) {
     Text(
-        text = text,
-        color = palette.foreground.toColor(),
-        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
-        modifier = Modifier.clickable(onClick = onClick),
+        text = text.uppercase(Locale.ROOT),
+        color = palette.mutedForeground.toColor(),
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
 
@@ -707,12 +1188,19 @@ private fun MenuWord(text: String, palette: Palette, onClick: () -> Unit) {
 private fun ClassicToolRack(
     palette: Palette,
     compareEnabled: Boolean,
+    compareActive: Boolean,
     canUndo: Boolean,
     canRedo: Boolean,
     readOnly: Boolean,
     onNew: () -> Unit,
     onOpen: () -> Unit,
+    onOpenFile: () -> Unit,
+    onDuplicateDocument: () -> Unit,
+    onCut: () -> Unit,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit,
     onFind: () -> Unit,
+    onReplace: () -> Unit,
     onCompare: () -> Unit,
     onMore: () -> Unit,
     onCycleTheme: () -> Unit,
@@ -720,10 +1208,15 @@ private fun ClassicToolRack(
     onRedo: () -> Unit,
     onGotoLine: () -> Unit,
     onSelectAll: () -> Unit,
+    onSelectLine: () -> Unit,
+    onSelectParagraph: () -> Unit,
+    onInsertDateTime: () -> Unit,
     onDuplicateLine: () -> Unit,
     onDeleteLine: () -> Unit,
     onTrim: () -> Unit,
     onSort: () -> Unit,
+    onToggleReadMode: () -> Unit,
+    onToggleZenMode: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -739,38 +1232,72 @@ private fun ClassicToolRack(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(horizontal = 4.dp, vertical = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolbarGlyph(label = "New", glyph = "+", palette = palette, onClick = onNew)
-            ToolbarGlyph(label = "Open", glyph = "[]", palette = palette, onClick = onOpen)
+            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.NoteAdd, label = "New", palette = palette, onClick = onNew)
+            ClassicToolbarButton(icon = Icons.Filled.FolderOpen, label = "Open", palette = palette, onClick = onOpenFile)
+            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.List, label = "Docs", palette = palette, onClick = onOpen)
+            ClassicToolbarButton(icon = Icons.Filled.Save, label = "Save", palette = palette, enabled = false, onClick = {})
+            ClassicToolbarButton(icon = Icons.Filled.ContentCopy, label = "Duplicate", palette = palette, onClick = onDuplicateDocument)
             ToolbarDivider(palette)
-            ToolbarGlyph(label = "Undo", glyph = "Undo", palette = palette, enabled = canUndo, onClick = onUndo)
-            ToolbarGlyph(label = "Redo", glyph = "Redo", palette = palette, enabled = canRedo, onClick = onRedo)
+            ClassicToolbarButton(icon = Icons.Filled.ContentCut, label = "Cut", palette = palette, enabled = !readOnly, onClick = onCut)
+            ClassicToolbarButton(icon = Icons.Filled.ContentCopy, label = "Copy", palette = palette, onClick = onCopy)
+            ClassicToolbarButton(icon = Icons.Filled.ContentPaste, label = "Paste", palette = palette, enabled = !readOnly, onClick = onPaste)
             ToolbarDivider(palette)
-            ToolbarGlyph(label = "Find", glyph = "Find", palette = palette, onClick = onFind)
-            ToolbarGlyph(label = "Compare", glyph = "==", palette = palette, enabled = compareEnabled, onClick = onCompare)
+            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.Undo, label = "Undo", palette = palette, enabled = canUndo, onClick = onUndo)
+            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.Redo, label = "Redo", palette = palette, enabled = canRedo, onClick = onRedo)
+            ToolbarDivider(palette)
+            ClassicToolbarButton(icon = Icons.Filled.Search, label = "Find", palette = palette, onClick = onFind)
+            ClassicToolbarButton(icon = Icons.Filled.FindReplace, label = "Replace", palette = palette, onClick = onReplace)
+            ClassicToolbarButton(icon = Icons.Filled.AccessTime, label = "Date", palette = palette, enabled = !readOnly, onClick = onInsertDateTime)
+            ToolbarDivider(palette)
+            ClassicToolbarButton(icon = Icons.Filled.SelectAll, label = "Select all", palette = palette, onClick = onSelectAll)
+            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.Subject, label = "Line", palette = palette, onClick = onSelectLine)
+            ClassicToolbarButton(icon = Icons.Filled.FormatAlignJustify, label = "Paragraph", palette = palette, onClick = onSelectParagraph)
+            ToolbarDivider(palette)
+            ClassicToolbarButton(icon = Icons.Filled.AddBox, label = "Duplicate line", palette = palette, enabled = !readOnly, onClick = onDuplicateLine)
+            ClassicToolbarButton(icon = Icons.Filled.IndeterminateCheckBox, label = "Delete line", palette = palette, enabled = !readOnly, destructive = true, onClick = onDeleteLine)
+            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.KeyboardTab, label = "Goto line", palette = palette, onClick = onGotoLine)
+            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.FormatAlignLeft, label = "Trim", palette = palette, enabled = !readOnly, onClick = onTrim)
+            ClassicToolbarButton(icon = Icons.Filled.SortByAlpha, label = "Sort", palette = palette, enabled = !readOnly, onClick = onSort)
+            ToolbarDivider(palette)
+            ClassicToolbarButton(icon = Icons.Filled.ViewColumn, label = "Compare", palette = palette, enabled = compareEnabled, active = compareActive, onClick = onCompare)
+            ClassicToolbarButton(icon = Icons.Filled.VisibilityOff, label = "Read mode", palette = palette, active = readOnly, onClick = onToggleReadMode)
+            ClassicToolbarButton(icon = Icons.Filled.Fullscreen, label = "Zen mode", palette = palette, onClick = onToggleZenMode)
+            ClassicToolbarButton(icon = Icons.Filled.Palette, label = "Theme", palette = palette, onClick = onCycleTheme)
+            ClassicToolbarButton(icon = Icons.Filled.Settings, label = "Preferences", palette = palette, onClick = onMore)
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(start = 4.dp, end = 4.dp, bottom = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ToolbarGlyph(label = "Select", glyph = "Select", palette = palette, onClick = onSelectAll)
-            ToolbarGlyph(label = "Dup line", glyph = "Dup", palette = palette, enabled = !readOnly, onClick = onDuplicateLine)
-            ToolbarGlyph(label = "Del line", glyph = "Del", palette = palette, enabled = !readOnly, onClick = onDeleteLine)
-            ToolbarDivider(palette)
-            ToolbarGlyph(label = "Goto", glyph = "Goto", palette = palette, onClick = onGotoLine)
-            ToolbarGlyph(label = "Trim", glyph = "Trim", palette = palette, enabled = !readOnly, onClick = onTrim)
-            ToolbarGlyph(label = "Sort", glyph = "Sort", palette = palette, enabled = !readOnly, onClick = onSort)
-            ToolbarDivider(palette)
-            ToolbarGlyph(label = "Theme", glyph = "Theme", palette = palette, onClick = onCycleTheme)
-            ToolbarGlyph(label = "More", glyph = "...", palette = palette, onClick = onMore)
-        }
+    }
+}
+
+@Composable
+private fun ClassicToolbarButton(
+    icon: ImageVector,
+    label: String,
+    palette: Palette,
+    enabled: Boolean = true,
+    active: Boolean = false,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val foreground = when {
+        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.48f)
+        destructive -> palette.destructive.toColor()
+        active -> palette.primary.toColor()
+        else -> palette.foreground.toColor()
+    }
+    Column(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 30.dp)
+            .height(25.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 5.dp, vertical = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = foreground, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -1535,19 +2062,23 @@ private fun EditorTextArea(
     readOnly: Boolean,
     showLineNumbers: Boolean,
     onSelectionChange: (TextSelection) -> Unit,
+    onFocusChange: (Boolean) -> Unit,
     onBodyChange: (String, TextSelection) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val latestBody = rememberUpdatedState(document.body)
     val latestOnBodyChange = rememberUpdatedState(onBodyChange)
     val latestOnSelectionChange = rememberUpdatedState(onSelectionChange)
+    val latestOnFocusChange = rememberUpdatedState(onFocusChange)
 
     AndroidView(
         modifier = modifier
             .fillMaxWidth()
+            .onFocusChanged { onFocusChange(it.isFocused) }
             .border(1.dp, palette.border.toColor(), RoundedCornerShape(palette.radius.dp)),
         factory = { context ->
             EditorEditText(context).apply {
+                setOnFocusChangeListener { _, hasFocus -> latestOnFocusChange.value(hasFocus) }
                 selectionChangedCallback = { latestOnSelectionChange.value(it) }
                 gravity = Gravity.TOP or Gravity.START
                 isSingleLine = false
@@ -1589,6 +2120,7 @@ private fun EditorTextArea(
             }
         },
         update = { editText ->
+            editText.setOnFocusChangeListener { _, hasFocus -> latestOnFocusChange.value(hasFocus) }
             editText.selectionChangedCallback = { latestOnSelectionChange.value(it) }
             val safeSelection = selection.clamped(document.body.length)
             val bodyChangedExternally = editText.text.toString() != document.body
@@ -1639,34 +2171,196 @@ private fun StatusBar(document: TextDocument, selection: TextSelection, readOnly
 private fun MobileBottomBar(
     palette: Palette,
     compareEnabled: Boolean,
+    compareActive: Boolean,
+    findActive: Boolean,
     onOpen: () -> Unit,
     onFind: () -> Unit,
     onCompare: () -> Unit,
-    onToggleLayoutMode: () -> Unit,
+    onSwitchToClassic: () -> Unit,
     onMore: () -> Unit,
-    onNew: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
-            .background(
-                Brush.verticalGradient(
-                    listOf(palette.chromeGradientStart.toColor(), palette.chromeGradientEnd.toColor()),
-                ),
-            )
+            .height(64.dp)
+            .background(palette.card.toColor())
             .border(1.dp, palette.border.toColor())
-            .padding(horizontal = 4.dp, vertical = 3.dp),
+            .padding(horizontal = 4.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ToolbarGlyph(label = "File", glyph = "[]", palette = palette, modifier = Modifier.weight(1f), onClick = onOpen)
-        ToolbarGlyph(label = "Find", glyph = "Q", palette = palette, modifier = Modifier.weight(1f), onClick = onFind)
-        ToolbarGlyph(label = "Compare", glyph = "==", palette = palette, enabled = compareEnabled, modifier = Modifier.weight(1f), onClick = onCompare)
-        ToolbarGlyph(label = "Classic", glyph = "W7", palette = palette, modifier = Modifier.weight(1f), onClick = onToggleLayoutMode)
-        ToolbarGlyph(label = "More", glyph = "...", palette = palette, modifier = Modifier.weight(1f), onClick = onMore)
-        ToolbarGlyph(label = "New", glyph = "+", palette = palette, modifier = Modifier.weight(1f), onClick = onNew)
+        MobileNavButton(icon = Icons.AutoMirrored.Filled.List, label = "Docs", palette = palette, modifier = Modifier.weight(1f), onClick = onOpen)
+        MobileNavButton(icon = Icons.Filled.Search, label = "Find", palette = palette, active = findActive, modifier = Modifier.weight(1f), onClick = onFind)
+        MobileNavButton(
+            icon = Icons.Filled.ViewColumn,
+            label = "Compare",
+            palette = palette,
+            active = compareActive,
+            enabled = compareEnabled,
+            modifier = Modifier.weight(1f),
+            onClick = onCompare,
+        )
+        MobileNavButton(icon = Icons.Filled.DesktopWindows, label = "Classic", palette = palette, modifier = Modifier.weight(1f), onClick = onSwitchToClassic)
+        MobileNavButton(icon = Icons.Filled.MoreHoriz, label = "More", palette = palette, modifier = Modifier.weight(1f), onClick = onMore)
     }
+}
+
+@Composable
+private fun MobileKeyboardAccessory(
+    palette: Palette,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    canCut: Boolean,
+    canPaste: Boolean,
+    readOnly: Boolean,
+    findActive: Boolean,
+    compareActive: Boolean,
+    onHideKeyboard: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onCut: () -> Unit,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit,
+    onMoveLeft: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onMoveRight: () -> Unit,
+    onFind: () -> Unit,
+    onReplace: () -> Unit,
+    onInsertDateTime: () -> Unit,
+    onSelectWord: () -> Unit,
+    onSelectLine: () -> Unit,
+    onCompare: () -> Unit,
+    onMore: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.card.toColor())
+            .border(1.dp, palette.border.toColor())
+            .padding(vertical = 3.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            AccessoryButton(Icons.Filled.KeyboardArrowDown, "Hide", palette, onClick = onHideKeyboard)
+            AccessoryDivider(palette)
+            AccessoryButton(Icons.AutoMirrored.Filled.Undo, "Undo", palette, enabled = canUndo, onClick = onUndo)
+            AccessoryButton(Icons.AutoMirrored.Filled.Redo, "Redo", palette, enabled = canRedo, onClick = onRedo)
+            AccessoryDivider(palette)
+            AccessoryButton(Icons.Filled.ContentCut, "Cut", palette, enabled = canCut, onClick = onCut)
+            AccessoryButton(Icons.Filled.ContentCopy, "Copy", palette, onClick = onCopy)
+            AccessoryButton(Icons.Filled.ContentPaste, "Paste", palette, enabled = canPaste && !readOnly, onClick = onPaste)
+            AccessoryDivider(palette)
+            AccessoryButton(Icons.AutoMirrored.Filled.ShortText, "Word", palette, onClick = onSelectWord)
+            AccessoryButton(Icons.AutoMirrored.Filled.Subject, "Line", palette, onClick = onSelectLine)
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            AccessoryButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", palette, showLabel = false, onClick = onMoveLeft)
+            AccessoryButton(Icons.Filled.KeyboardArrowUp, "Up", palette, showLabel = false, onClick = onMoveUp)
+            AccessoryButton(Icons.Filled.KeyboardArrowDown, "Down", palette, showLabel = false, onClick = onMoveDown)
+            AccessoryButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", palette, showLabel = false, onClick = onMoveRight)
+            AccessoryDivider(palette)
+            AccessoryButton(Icons.Filled.Search, "Find", palette, active = findActive, onClick = onFind)
+            AccessoryButton(Icons.Filled.FindReplace, "Replace", palette, onClick = onReplace)
+            AccessoryButton(Icons.Filled.AccessTime, "Date", palette, enabled = !readOnly, onClick = onInsertDateTime)
+            AccessoryButton(Icons.Filled.ViewColumn, "Compare", palette, active = compareActive, onClick = onCompare)
+            AccessoryButton(Icons.Filled.MoreHoriz, "More", palette, onClick = onMore)
+        }
+    }
+}
+
+@Composable
+private fun MobileNavButton(
+    icon: ImageVector,
+    label: String,
+    palette: Palette,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val color = when {
+        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.45f)
+        active -> palette.primary.toColor()
+        else -> palette.foreground.toColor()
+    }
+    Column(
+        modifier = modifier
+            .height(52.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(23.dp))
+        Text(
+            text = label,
+            color = color,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun AccessoryButton(
+    icon: ImageVector,
+    label: String,
+    palette: Palette,
+    enabled: Boolean = true,
+    active: Boolean = false,
+    showLabel: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val color = when {
+        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.42f)
+        active -> palette.primary.toColor()
+        else -> palette.foreground.toColor()
+    }
+    Column(
+        modifier = Modifier
+            .defaultMinSize(minWidth = if (showLabel) 48.dp else 36.dp)
+            .height(34.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(18.dp))
+        if (showLabel) {
+            Text(
+                text = label,
+                color = color,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccessoryDivider(palette: Palette) {
+    Spacer(
+        Modifier
+            .size(width = 1.dp, height = 28.dp)
+            .background(palette.border.toColor()),
+    )
 }
 
 @Composable
@@ -1724,7 +2418,35 @@ private fun TextSelection.lineNumberIn(body: String): Int =
 private fun String.toColor(): Color =
     Color(android.graphics.Color.parseColor(this))
 
+private val ThemeName.displayTitle: String
+    get() = when (this) {
+        ThemeName.CLASSIC -> "Classic"
+        ThemeName.LIGHT -> "Light"
+        ThemeName.DARK -> "Dark"
+        ThemeName.RETRO -> "Retro"
+        ThemeName.MODERN -> "Modern"
+        ThemeName.CYBERPUNK -> "Cyberpunk"
+        ThemeName.SUNSET -> "Rachel's Sunset"
+        ThemeName.CUSTOM -> "Custom"
+    }
+
+private fun Context.hideSoftKeyboard() {
+    val activity = this as? Activity ?: return
+    val view = activity.currentFocus ?: activity.window.decorView
+    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+    imm.hideSoftInputFromWindow(view.windowToken, 0)
+}
+
 private fun maxOfSelection(first: TextSelection, second: TextSelection?): TextSelection {
     if (second == null) return first
     return if (second.max > first.max) second else first
+}
+
+private enum class ClassicMenu {
+    FILE,
+    EDIT,
+    VIEW,
+    SETTINGS,
+    TOOLS,
+    HELP,
 }
