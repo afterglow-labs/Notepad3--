@@ -4,27 +4,30 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class DocumentLanguage(val displayName: String) {
+enum class DocumentLanguage(
+    val displayName: String,
+    val lineCommentPrefix: String?,
+) {
     @SerialName("Plain")
-    PLAIN("Plain"),
+    PLAIN("Plain", null),
 
     @SerialName("Markdown")
-    MARKDOWN("Markdown"),
+    MARKDOWN("Markdown", null),
 
     @SerialName("Assembly")
-    ASSEMBLY("Assembly"),
+    ASSEMBLY("Assembly", ";"),
 
     @SerialName("JavaScript")
-    JAVA_SCRIPT("JavaScript"),
+    JAVA_SCRIPT("JavaScript", "//"),
 
     @SerialName("Python")
-    PYTHON("Python"),
+    PYTHON("Python", "#"),
 
     @SerialName("Web")
-    WEB("Web"),
+    WEB("Web", "//"),
 
     @SerialName("JSON")
-    JSON("JSON");
+    JSON("JSON", "//");
 
     companion object {
         fun detect(fileName: String): DocumentLanguage {

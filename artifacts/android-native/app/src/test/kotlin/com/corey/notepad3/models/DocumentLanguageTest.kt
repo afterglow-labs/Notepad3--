@@ -14,4 +14,13 @@ class DocumentLanguageTest {
         assertEquals(DocumentLanguage.JSON, DocumentLanguage.detect("settings.jsonc"))
         assertEquals(DocumentLanguage.PLAIN, DocumentLanguage.detect("scratchpad.txt"))
     }
+
+    @Test
+    fun exposesPrimaryLineCommentPrefixForEditorCommands() {
+        assertEquals(";", DocumentLanguage.ASSEMBLY.lineCommentPrefix)
+        assertEquals("//", DocumentLanguage.JAVA_SCRIPT.lineCommentPrefix)
+        assertEquals("#", DocumentLanguage.PYTHON.lineCommentPrefix)
+        assertEquals("//", DocumentLanguage.JSON.lineCommentPrefix)
+        assertEquals(null, DocumentLanguage.PLAIN.lineCommentPrefix)
+    }
 }

@@ -19,11 +19,49 @@ class EditorCommandsTest {
     }
 
     @Test
+    fun trimsLeadingSpacesOnEveryLine() {
+        val result = EditorCommands.trimLeadingSpaces(
+            body = "  alpha\n\tbeta\n gamma",
+            selection = TextSelection(9),
+        )
+
+        assertEquals("alpha\nbeta\ngamma", result.body)
+        assertEquals(TextSelection(6), result.selection)
+    }
+
+    @Test
     fun sortsAllLinesCaseInsensitivelyLikeIos() {
         val result = EditorCommands.sortLines("banana\nApple\n\ncarrot")
 
         assertEquals("\nApple\nbanana\ncarrot", result.body)
         assertEquals(TextSelection(0), result.selection)
+    }
+
+    @Test
+    fun reversesAllLines() {
+        val result = EditorCommands.reverseLines("one\ntwo\nthree")
+
+        assertEquals("three\ntwo\none", result.body)
+        assertEquals(TextSelection(0), result.selection)
+    }
+
+    @Test
+    fun removesDuplicateLinesPreservingFirstOccurrence() {
+        val result = EditorCommands.removeDuplicateLines("one\ntwo\none\nTWO\ntwo")
+
+        assertEquals("one\ntwo\nTWO", result.body)
+        assertEquals(TextSelection(0), result.selection)
+    }
+
+    @Test
+    fun joinsSelectedLinesByReplacingBreaksAndIndentationWithSpaces() {
+        val result = EditorCommands.joinSelectedLines(
+            body = "one\n  two\nthree",
+            selection = TextSelection(1, 8),
+        )
+
+        assertEquals("one two\nthree", result.body)
+        assertEquals(TextSelection(1, 6), result.selection)
     }
 
     @Test
@@ -116,6 +154,14 @@ class EditorCommandsTest {
     }
 
     @Test
+    fun selectsTheCurrentWordUsingEditorIdentifierCharacters() {
+        val body = "alpha beta_two.gamma"
+
+        assertEquals(TextSelection(6, 14), EditorCommands.selectWord(body, caret = 10))
+        assertEquals(TextSelection(5), EditorCommands.selectWord(body, caret = 5))
+    }
+
+    @Test
     fun selectsTheParagraphAroundTheCaretUntilBlankLines() {
         val body = "intro\n\none\ntwo\n\noutro"
 
@@ -189,6 +235,52 @@ class EditorCommandsTest {
 
         assertEquals("alpha two", result.body)
         assertEquals(TextSelection(9), result.selection)
+    }
+
+    @Test
+    fun togglesLineCommentsAcrossTheSelectedLines() {
+        val commented = EditorCommands.toggleLineComment(
+            body = "one\n  two\n\nthree",
+            selection = TextSelection(1, 8),
+            prefix = "//",
+        )
+
+        assertEquals("// one\n  // two\n\nthree", commented.body)
+        assertEquals(TextSelection(4, 14), commented.selection)
+
+        val uncommented = EditorCommands.toggleLineComment(
+            body = commented.body,
+            selection = commented.selection,
+            prefix = "//",
+        )
+
+        assertEquals("one\n  two\n\nthree", uncommented.body)
+        assertEquals(TextSelection(1, 8), uncommented.selection)
+    }
+
+    @Test
+    fun movesTheCurrentLineUpAndDownPreservingCaretColumn() {
+        val movedUp = EditorCommands.moveCurrentLineUp("one\ntwo\nthree", caret = 10)
+
+        assertEquals("one\nthree\ntwo", movedUp.body)
+        assertEquals(TextSelection(6), movedUp.selection)
+
+        val movedDown = EditorCommands.moveCurrentLineDown("one\ntwo\nthree", caret = 1)
+
+        assertEquals("two\none\nthree", movedDown.body)
+        assertEquals(TextSelection(5), movedDown.selection)
+    }
+
+    @Test
+    fun leavesLineMoveAtDocumentBoundariesUnchanged() {
+        assertEquals(
+            EditResult("one\ntwo", TextSelection(1)),
+            EditorCommands.moveCurrentLineUp("one\ntwo", caret = 1),
+        )
+        assertEquals(
+            EditResult("one\ntwo", TextSelection(5)),
+            EditorCommands.moveCurrentLineDown("one\ntwo", caret = 5),
+        )
     }
 
     @Test

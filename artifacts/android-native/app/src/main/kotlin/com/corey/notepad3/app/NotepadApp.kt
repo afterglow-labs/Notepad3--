@@ -305,6 +305,9 @@ fun NotepadApp(
                             onSelectAll = {
                                 applySelection(EditorCommands.selectAll(active.body))
                             },
+                            onSelectWord = {
+                                applySelection(EditorCommands.selectWord(active.body, activeSelection.min))
+                            },
                             onSelectLine = {
                                 applySelection(EditorCommands.selectLine(active.body, activeSelection.min))
                             },
@@ -323,8 +326,31 @@ fun NotepadApp(
                             onUnindent = {
                                 commitEdit(EditorCommands.unindentSelection(active.body, activeSelection))
                             },
+                            onToggleComment = {
+                                active.language.lineCommentPrefix?.let { prefix ->
+                                    commitEdit(EditorCommands.toggleLineComment(active.body, activeSelection, prefix))
+                                }
+                            },
+                            onMoveLineUp = {
+                                commitEdit(EditorCommands.moveCurrentLineUp(active.body, activeSelection.min))
+                            },
+                            onMoveLineDown = {
+                                commitEdit(EditorCommands.moveCurrentLineDown(active.body, activeSelection.min))
+                            },
                             onTrim = {
                                 commitEdit(EditorCommands.trimTrailingSpaces(active.body, activeSelection))
+                            },
+                            onTrimLeading = {
+                                commitEdit(EditorCommands.trimLeadingSpaces(active.body, activeSelection))
+                            },
+                            onJoinLines = {
+                                commitEdit(EditorCommands.joinSelectedLines(active.body, activeSelection))
+                            },
+                            onReverseLines = {
+                                commitEdit(EditorCommands.reverseLines(active.body))
+                            },
+                            onRemoveDuplicateLines = {
+                                commitEdit(EditorCommands.removeDuplicateLines(active.body))
                             },
                             onSort = {
                                 commitEdit(EditorCommands.sortLines(active.body))
@@ -347,6 +373,7 @@ fun NotepadApp(
                                 showLanguage = true
                                 showMore = false
                             },
+                            commentEnabled = active.language.lineCommentPrefix != null,
                             previewEnabled = active.language == DocumentLanguage.MARKDOWN,
                             previewActive = showingMarkdownPreview,
                             onTogglePreview = {
@@ -905,19 +932,28 @@ private fun MorePanel(
     onInsertDateTime: () -> Unit,
     onGotoLine: () -> Unit,
     onSelectAll: () -> Unit,
+    onSelectWord: () -> Unit,
     onSelectLine: () -> Unit,
     onSelectParagraph: () -> Unit,
     onUppercase: () -> Unit,
     onLowercase: () -> Unit,
     onIndent: () -> Unit,
     onUnindent: () -> Unit,
+    onToggleComment: () -> Unit,
+    onMoveLineUp: () -> Unit,
+    onMoveLineDown: () -> Unit,
     onTrim: () -> Unit,
+    onTrimLeading: () -> Unit,
+    onJoinLines: () -> Unit,
+    onReverseLines: () -> Unit,
+    onRemoveDuplicateLines: () -> Unit,
     onSort: () -> Unit,
     onDuplicateLine: () -> Unit,
     onDeleteLine: () -> Unit,
     onDuplicateDocument: () -> Unit,
     onCloseOthers: () -> Unit,
     onChangeLanguage: () -> Unit,
+    commentEnabled: Boolean,
     previewEnabled: Boolean,
     previewActive: Boolean,
     onTogglePreview: () -> Unit,
@@ -944,6 +980,7 @@ private fun MorePanel(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 CommandButton(text = "Select All", palette = palette, modifier = Modifier.weight(1f), onClick = onSelectAll)
+                CommandButton(text = "Word", palette = palette, modifier = Modifier.weight(1f), onClick = onSelectWord)
                 CommandButton(text = "Line", palette = palette, modifier = Modifier.weight(1f), onClick = onSelectLine)
                 CommandButton(text = "Paragraph", palette = palette, modifier = Modifier.weight(1f), onClick = onSelectParagraph)
             }
@@ -955,6 +992,17 @@ private fun MorePanel(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 CommandButton(text = "Trim", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onTrim)
+                CommandButton(text = "Comment", palette = palette, enabled = !readMode && commentEnabled, modifier = Modifier.weight(1f), onClick = onToggleComment)
+                CommandButton(text = "Move Up", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onMoveLineUp)
+                CommandButton(text = "Move Down", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onMoveLineDown)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                CommandButton(text = "Trim Lead", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onTrimLeading)
+                CommandButton(text = "Join", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onJoinLines)
+                CommandButton(text = "Reverse", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onReverseLines)
+                CommandButton(text = "Unique", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onRemoveDuplicateLines)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 CommandButton(text = "Sort", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onSort)
                 CommandButton(text = "Dup Line", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onDuplicateLine)
                 CommandButton(text = "Del Line", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onDeleteLine)
