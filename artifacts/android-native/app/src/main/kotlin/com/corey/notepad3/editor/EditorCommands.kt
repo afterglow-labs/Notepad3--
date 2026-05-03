@@ -21,6 +21,12 @@ data class EditResult(
     val selection: TextSelection,
 )
 
+data class SearchOptions(
+    val caseSensitive: Boolean = false,
+    val wholeWord: Boolean = false,
+    val regex: Boolean = false,
+)
+
 object EditorCommands {
     fun trimTrailingSpaces(body: String, selection: TextSelection): EditResult {
         val trimmed = body.split("\n", ignoreCase = false, limit = 0)
@@ -235,25 +241,38 @@ object EditorCommands {
         return TextSelection(start, end)
     }
 
-    fun findNext(body: String, query: String, selection: TextSelection): TextSelection? {
+    fun findNext(
+        body: String,
+        query: String,
+        selection: TextSelection,
+        options: SearchOptions = SearchOptions(),
+    ): TextSelection? {
         if (query.isBlank()) return null
         val startAt = selection.clamped(body.length).max
-        val found = body.indexOf(query, startIndex = startAt, ignoreCase = true)
-            .takeIf { it >= 0 }
-            ?: body.indexOf(query, startIndex = 0, ignoreCase = true).takeIf { it >= 0 }
-        return found?.let { TextSelection(it, it + query.length) }
+        val matches = findMatches(body, query, options)
+        return matches.firstOrNull { it.start >= startAt } ?: matches.firstOrNull()
     }
 
-    fun findPrevious(body: String, query: String, selection: TextSelection): TextSelection? {
+    fun findPrevious(
+        body: String,
+        query: String,
+        selection: TextSelection,
+        options: SearchOptions = SearchOptions(),
+    ): TextSelection? {
         if (query.isBlank()) return null
         val before = selection.clamped(body.length).min
-        val matches = findMatches(body, query)
+        val matches = findMatches(body, query, options)
         return matches.lastOrNull { it.start < before } ?: matches.lastOrNull()
     }
 
-    fun replaceAll(body: String, query: String, replacement: String): EditResult {
+    fun replaceAll(
+        body: String,
+        query: String,
+        replacement: String,
+        options: SearchOptions = SearchOptions(),
+    ): EditResult {
         if (query.isBlank()) return EditResult(body, TextSelection(0))
-        val next = findMatches(body, query)
+        val next = findMatches(body, query, options)
             .asReversed()
             .fold(body) { current, match ->
                 current.replaceRange(match.start, match.end, replacement)
@@ -266,26 +285,37 @@ object EditorCommands {
         query: String,
         replacement: String,
         selection: TextSelection,
+        options: SearchOptions = SearchOptions(),
     ): EditResult {
         val safeSelection = selection.clamped(body.length)
         if (safeSelection.min == safeSelection.max) {
-            return EditResult(body, findNext(body, query, safeSelection) ?: safeSelection)
+            return EditResult(body, findNext(body, query, safeSelection, options) ?: safeSelection)
         }
 
         val next = body.replaceRange(safeSelection.min, safeSelection.max, replacement)
         val caret = TextSelection(safeSelection.min + replacement.length)
-        return EditResult(next, findNext(next, query, caret) ?: caret)
+        return EditResult(next, findNext(next, query, caret, options) ?: caret)
     }
 
-    fun findMatches(body: String, query: String): List<TextSelection> {
+    fun findMatches(
+        body: String,
+        query: String,
+        options: SearchOptions = SearchOptions(),
+    ): List<TextSelection> {
         if (query.isBlank()) return emptyList()
-        val matches = mutableListOf<TextSelection>()
-        var index = body.indexOf(query, startIndex = 0, ignoreCase = true)
-        while (index >= 0) {
-            matches += TextSelection(index, index + query.length)
-            index = body.indexOf(query, startIndex = index + query.length, ignoreCase = true)
-        }
-        return matches
+        val pattern = if (options.regex) query else Regex.escape(query)
+        val regex = runCatching {
+            Regex(
+                pattern = pattern,
+                options = if (options.caseSensitive) emptySet() else setOf(RegexOption.IGNORE_CASE),
+            )
+        }.getOrNull() ?: return emptyList()
+
+        return regex.findAll(body)
+            .map { match -> TextSelection(match.range.first, match.range.last + 1) }
+            .filter { it.start < it.end }
+            .filter { !options.wholeWord || body.hasWordBoundaryAround(it) }
+            .toList()
     }
 
     fun toggleLineComment(body: String, selection: TextSelection, prefix: String): EditResult {
@@ -438,6 +468,12 @@ object EditorCommands {
 
     private fun Char.isEditorWordChar(): Boolean =
         isLetterOrDigit() || this == '_' || this == '-' || this == '\''
+
+    private fun String.hasWordBoundaryAround(selection: TextSelection): Boolean {
+        val before = getOrNull(selection.start - 1)
+        val after = getOrNull(selection.end)
+        return before?.isEditorWordChar() != true && after?.isEditorWordChar() != true
+    }
 
     private fun String.indentEnd(start: Int, end: Int): Int {
         var index = start

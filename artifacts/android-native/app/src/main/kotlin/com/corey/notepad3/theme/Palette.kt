@@ -23,7 +23,7 @@ data class Palette(
 ) {
     companion object {
         val classic = Palette(
-            background = "#d9dde5",
+            background = "#dbe5f1",
             foreground = "#101820",
             card = "#f7f8fa",
             primary = "#2f5f9e",

@@ -107,12 +107,14 @@ fun NotepadApp(
     editorPreferenceController: EditorPreferenceController,
     modifier: Modifier = Modifier,
     onOpenFile: () -> Unit = {},
+    onSaveFile: (TextDocument) -> Unit = {},
     onCloseApp: () -> Unit = {},
 ) {
     val snapshot by store.state.collectAsState()
     val palette by themeController.palette.collectAsState()
     val resolvedTheme by themeController.resolvedTheme.collectAsState()
     val layoutMode by editorPreferenceController.layoutMode.collectAsState()
+    val displayOptions by editorPreferenceController.displayOptions.collectAsState()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val active = snapshot.documents.firstOrNull { it.id == snapshot.activeId } ?: snapshot.documents.first()
@@ -372,6 +374,7 @@ fun NotepadApp(
                         onThemeSelect = ::setTheme,
                         onOpenDocuments = ::toggleDocumentsPanel,
                         onOpenFile = onOpenFile,
+                        onSave = { onSaveFile(active) },
                         onFind = ::toggleFindPanel,
                         onReplace = ::openReplacePanel,
                         onCompare = ::toggleComparePanel,
@@ -512,6 +515,7 @@ fun NotepadApp(
                             readMode = readMode,
                             zenMode = zenMode,
                             layoutMode = layoutMode,
+                            displayOptions = displayOptions,
                             onUndo = ::undoEdit,
                             onRedo = ::redoEdit,
                             onInsertDateTime = ::insertDateTime,
@@ -575,6 +579,10 @@ fun NotepadApp(
                                 store.closeOthers(active.id)
                                 showMore = false
                             },
+                            onSave = {
+                                onSaveFile(active)
+                                showMore = false
+                            },
                             onChangeLanguage = {
                                 showLanguage = true
                                 showMore = false
@@ -592,6 +600,11 @@ fun NotepadApp(
                             },
                             onToggleZenMode = ::toggleZenMode,
                             onToggleLayoutMode = ::toggleLayoutMode,
+                            onFontSizeDown = { editorPreferenceController.adjustFontSize(-1) },
+                            onFontSizeUp = { editorPreferenceController.adjustFontSize(1) },
+                            onToggleWordWrap = editorPreferenceController::toggleWordWrap,
+                            onToggleLineNumbers = editorPreferenceController::toggleLineNumbers,
+                            onToggleAccessoryBar = editorPreferenceController::toggleAccessoryBar,
                             onCycleTheme = ::cycleTheme,
                         )
                     }
@@ -610,7 +623,9 @@ fun NotepadApp(
                             palette = palette,
                             selection = activeSelection,
                             readOnly = readMode,
-                            showLineNumbers = layoutMode == EditorLayoutMode.CLASSIC,
+                            fontSizeSp = displayOptions.fontSizeSp,
+                            wordWrap = displayOptions.wordWrap,
+                            showLineNumbers = layoutMode == EditorLayoutMode.CLASSIC && displayOptions.lineNumbers,
                             onSelectionChange = ::rememberSelection,
                             onFocusChange = { editorFocused = it },
                             onBodyChange = { next, nextSelection ->
@@ -641,7 +656,7 @@ fun NotepadApp(
                     Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
                     StatusBar(document = active, selection = activeSelection, readOnly = readMode, palette = palette)
                     Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
-                    if (layoutMode == EditorLayoutMode.MOBILE && editorFocused) {
+                    if (layoutMode == EditorLayoutMode.MOBILE && editorFocused && displayOptions.accessoryBar) {
                         MobileKeyboardAccessory(
                             palette = palette,
                             canUndo = canUndo,
@@ -704,6 +719,7 @@ private fun WindowBar(
     onThemeSelect: (ThemeName) -> Unit,
     onOpenDocuments: () -> Unit,
     onOpenFile: () -> Unit,
+    onSave: () -> Unit,
     onFind: () -> Unit,
     onReplace: () -> Unit,
     onCompare: () -> Unit,
@@ -744,6 +760,7 @@ private fun WindowBar(
                 zenMode = zenMode,
                 onNew = onNew,
                 onOpenFile = onOpenFile,
+                onSave = onSave,
                 onOpenDocuments = onOpenDocuments,
                 onDuplicateDocument = onDuplicateDocument,
                 onCloseDocument = onCloseDocument,
@@ -782,6 +799,7 @@ private fun WindowBar(
                 onNew = onNew,
                 onOpen = onOpenDocuments,
                 onOpenFile = onOpenFile,
+                onSave = onSave,
                 onDuplicateDocument = onDuplicateDocument,
                 onCut = onCut,
                 onCopy = onCopy,
@@ -938,6 +956,7 @@ private fun ClassicMenuBar(
     zenMode: Boolean,
     onNew: () -> Unit,
     onOpenFile: () -> Unit,
+    onSave: () -> Unit,
     onOpenDocuments: () -> Unit,
     onDuplicateDocument: () -> Unit,
     onCloseDocument: () -> Unit,
@@ -998,7 +1017,7 @@ private fun ClassicMenuBar(
             ClassicDropdownMenuItem("Open...", Icons.Filled.FolderOpen, palette) { runMenuAction(onOpenFile) }
             ClassicDropdownMenuItem("Open documents...", Icons.AutoMirrored.Filled.List, palette) { runMenuAction(onOpenDocuments) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuItem("Save", Icons.Filled.Save, palette, enabled = false) {}
+            ClassicDropdownMenuItem("Save", Icons.Filled.Save, palette) { runMenuAction(onSave) }
             ClassicDropdownMenuItem("Duplicate", Icons.Filled.ContentCopy, palette) { runMenuAction(onDuplicateDocument) }
             ClassicDropdownSeparator(palette)
             ClassicDropdownMenuItem("Close", Icons.Filled.Close, palette) { runMenuAction(onCloseDocument) }
@@ -1195,6 +1214,7 @@ private fun ClassicToolRack(
     onNew: () -> Unit,
     onOpen: () -> Unit,
     onOpenFile: () -> Unit,
+    onSave: () -> Unit,
     onDuplicateDocument: () -> Unit,
     onCut: () -> Unit,
     onCopy: () -> Unit,
@@ -1239,7 +1259,7 @@ private fun ClassicToolRack(
             ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.NoteAdd, label = "New", palette = palette, onClick = onNew)
             ClassicToolbarButton(icon = Icons.Filled.FolderOpen, label = "Open", palette = palette, onClick = onOpenFile)
             ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.List, label = "Docs", palette = palette, onClick = onOpen)
-            ClassicToolbarButton(icon = Icons.Filled.Save, label = "Save", palette = palette, enabled = false, onClick = {})
+            ClassicToolbarButton(icon = Icons.Filled.Save, label = "Save", palette = palette, onClick = onSave)
             ClassicToolbarButton(icon = Icons.Filled.ContentCopy, label = "Duplicate", palette = palette, onClick = onDuplicateDocument)
             ToolbarDivider(palette)
             ClassicToolbarButton(icon = Icons.Filled.ContentCut, label = "Cut", palette = palette, enabled = !readOnly, onClick = onCut)
@@ -1814,6 +1834,7 @@ private fun MorePanel(
     readMode: Boolean,
     zenMode: Boolean,
     layoutMode: EditorLayoutMode,
+    displayOptions: EditorDisplayOptions,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onInsertDateTime: () -> Unit,
@@ -1839,6 +1860,7 @@ private fun MorePanel(
     onDeleteLine: () -> Unit,
     onDuplicateDocument: () -> Unit,
     onCloseOthers: () -> Unit,
+    onSave: () -> Unit,
     onChangeLanguage: () -> Unit,
     commentEnabled: Boolean,
     previewEnabled: Boolean,
@@ -1847,6 +1869,11 @@ private fun MorePanel(
     onToggleReadMode: () -> Unit,
     onToggleZenMode: () -> Unit,
     onToggleLayoutMode: () -> Unit,
+    onFontSizeDown: () -> Unit,
+    onFontSizeUp: () -> Unit,
+    onToggleWordWrap: () -> Unit,
+    onToggleLineNumbers: () -> Unit,
+    onToggleAccessoryBar: () -> Unit,
     onCycleTheme: () -> Unit,
 ) {
     Surface(
@@ -1895,9 +1922,12 @@ private fun MorePanel(
                 CommandButton(text = "Del Line", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onDeleteLine)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                CommandButton(text = "Save", palette = palette, modifier = Modifier.weight(1f), onClick = onSave)
                 CommandButton(text = "Dup Doc", palette = palette, modifier = Modifier.weight(1f), onClick = onDuplicateDocument)
                 CommandButton(text = "Close Others", palette = palette, modifier = Modifier.weight(1f), onClick = onCloseOthers)
                 CommandButton(text = "Lang", palette = palette, modifier = Modifier.weight(1f), onClick = onChangeLanguage)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 CommandButton(
                     text = if (previewActive) "Edit" else "Preview",
                     palette = palette,
@@ -1905,9 +1935,9 @@ private fun MorePanel(
                     modifier = Modifier.weight(1f),
                     onClick = onTogglePreview,
                 )
+                CommandButton(text = "Theme", palette = palette, modifier = Modifier.weight(1f), onClick = onCycleTheme)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Theme", palette = palette, modifier = Modifier.weight(1f), onClick = onCycleTheme)
                 CommandButton(
                     text = if (readMode) "Edit Mode" else "Read Mode",
                     palette = palette,
@@ -1925,6 +1955,37 @@ private fun MorePanel(
                     palette = palette,
                     modifier = Modifier.weight(1f),
                     onClick = onToggleLayoutMode,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                CommandButton(text = "Font -", palette = palette, modifier = Modifier.weight(1f), onClick = onFontSizeDown)
+                CommandButton(
+                    text = "${displayOptions.fontSizeSp} sp",
+                    palette = palette,
+                    enabled = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = {},
+                )
+                CommandButton(text = "Font +", palette = palette, modifier = Modifier.weight(1f), onClick = onFontSizeUp)
+                CommandButton(
+                    text = if (displayOptions.wordWrap) "Wrap On" else "Wrap Off",
+                    palette = palette,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleWordWrap,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                CommandButton(
+                    text = if (displayOptions.lineNumbers) "Lines On" else "Lines Off",
+                    palette = palette,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleLineNumbers,
+                )
+                CommandButton(
+                    text = if (displayOptions.accessoryBar) "Keyboard Bar On" else "Keyboard Bar Off",
+                    palette = palette,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleAccessoryBar,
                 )
             }
         }
@@ -2060,6 +2121,8 @@ private fun EditorTextArea(
     palette: Palette,
     selection: TextSelection,
     readOnly: Boolean,
+    fontSizeSp: Int,
+    wordWrap: Boolean,
     showLineNumbers: Boolean,
     onSelectionChange: (TextSelection) -> Unit,
     onFocusChange: (Boolean) -> Unit,
@@ -2088,8 +2151,8 @@ private fun EditorTextArea(
                     InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                     InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
                 editableKeyListener = keyListener
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                setHorizontallyScrolling(false)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSizeSp.toFloat())
+                setHorizontallyScrolling(!wordWrap)
                 setEditorContentPadding(18, 18, 18, 18)
                 configureGutter(palette, showLineNumbers)
                 setText(document.body)
@@ -2133,6 +2196,8 @@ private fun EditorTextArea(
             }
             editText.setTextColor(palette.foreground.toColor().toArgb())
             editText.setBackgroundColor(palette.editorBackground.toColor().toArgb())
+            editText.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSizeSp.toFloat())
+            editText.setHorizontallyScrolling(!wordWrap)
             editText.configureGutter(palette, showLineNumbers)
             if (bodyChangedExternally) {
                 editText.setText(document.body)

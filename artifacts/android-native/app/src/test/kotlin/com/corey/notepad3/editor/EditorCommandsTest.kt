@@ -199,7 +199,7 @@ class EditorCommandsTest {
             ),
         )
         assertEquals(
-            TextSelection(29, 34),
+            TextSelection(25, 30),
             EditorCommands.findNext(
                 body = body,
                 query = "dog\\d+",
