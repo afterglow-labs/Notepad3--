@@ -87,6 +87,7 @@ import com.corey.notepad3.editor.EditorStatus
 import com.corey.notepad3.editor.LineDiff
 import com.corey.notepad3.editor.MarkdownBlock
 import com.corey.notepad3.editor.MarkdownPreview
+import com.corey.notepad3.editor.SearchOptions
 import com.corey.notepad3.editor.TextSelection
 import com.corey.notepad3.models.DocumentLanguage
 import com.corey.notepad3.models.TextDocument
@@ -127,6 +128,9 @@ fun NotepadApp(
     var showFind by rememberSaveable { mutableStateOf(false) }
     var findQuery by rememberSaveable { mutableStateOf("") }
     var replacement by rememberSaveable { mutableStateOf("") }
+    var findCaseSensitive by rememberSaveable { mutableStateOf(false) }
+    var findWholeWord by rememberSaveable { mutableStateOf(false) }
+    var findRegex by rememberSaveable { mutableStateOf(false) }
     var showGoto by rememberSaveable { mutableStateOf(false) }
     var gotoValue by rememberSaveable { mutableStateOf("") }
     var showLanguage by rememberSaveable { mutableStateOf(false) }
@@ -138,6 +142,11 @@ fun NotepadApp(
     var zenMode by rememberSaveable { mutableStateOf(false) }
     var editorFocused by rememberSaveable { mutableStateOf(false) }
     val showingMarkdownPreview = previewMode && active.language == DocumentLanguage.MARKDOWN
+    val searchOptions = SearchOptions(
+        caseSensitive = findCaseSensitive,
+        wholeWord = findWholeWord,
+        regex = findRegex,
+    )
     val canUndo = historyVersion.let { history.canUndo }
     val canRedo = historyVersion.let { history.canRedo }
 
@@ -432,16 +441,20 @@ fun NotepadApp(
                             document = active,
                             query = findQuery,
                             replacement = replacement,
+                            options = searchOptions,
                             palette = palette,
                             replaceEnabled = !readMode,
                             onQueryChange = { findQuery = it },
                             onReplacementChange = { replacement = it },
+                            onToggleCaseSensitive = { findCaseSensitive = !findCaseSensitive },
+                            onToggleWholeWord = { findWholeWord = !findWholeWord },
+                            onToggleRegex = { findRegex = !findRegex },
                             onNext = {
-                                EditorCommands.findNext(active.body, findQuery, activeSelection)
+                                EditorCommands.findNext(active.body, findQuery, activeSelection, searchOptions)
                                     ?.let { selections[active.id] = it }
                             },
                             onPrevious = {
-                                EditorCommands.findPrevious(active.body, findQuery, activeSelection)
+                                EditorCommands.findPrevious(active.body, findQuery, activeSelection, searchOptions)
                                     ?.let { selections[active.id] = it }
                             },
                             onReplaceCurrent = {
@@ -452,13 +465,14 @@ fun NotepadApp(
                                             query = findQuery,
                                             replacement = replacement,
                                             selection = activeSelection,
+                                            options = searchOptions,
                                         ),
                                     )
                                 }
                             },
                             onReplaceAll = {
                                 if (!readMode) {
-                                    commitEdit(EditorCommands.replaceAll(active.body, findQuery, replacement))
+                                    commitEdit(EditorCommands.replaceAll(active.body, findQuery, replacement, searchOptions))
                                 }
                             },
                         )
@@ -1489,16 +1503,20 @@ private fun FindPanel(
     document: TextDocument,
     query: String,
     replacement: String,
+    options: SearchOptions,
     palette: Palette,
     replaceEnabled: Boolean,
     onQueryChange: (String) -> Unit,
     onReplacementChange: (String) -> Unit,
+    onToggleCaseSensitive: () -> Unit,
+    onToggleWholeWord: () -> Unit,
+    onToggleRegex: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onReplaceCurrent: () -> Unit,
     onReplaceAll: () -> Unit,
 ) {
-    val matchCount = EditorCommands.findMatches(document.body, query).size
+    val matchCount = EditorCommands.findMatches(document.body, query, options).size
     Surface(
         color = palette.card.toColor(),
         border = BorderStroke(1.dp, palette.border.toColor()),
@@ -1531,6 +1549,29 @@ private fun FindPanel(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     placeholder = { Text("Replace") },
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                CommandButton(
+                    text = "Aa",
+                    palette = palette,
+                    primary = options.caseSensitive,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleCaseSensitive,
+                )
+                CommandButton(
+                    text = "Word",
+                    palette = palette,
+                    primary = options.wholeWord,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleWholeWord,
+                )
+                CommandButton(
+                    text = "Regex",
+                    palette = palette,
+                    primary = options.regex,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleRegex,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
