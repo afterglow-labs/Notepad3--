@@ -187,6 +187,38 @@ class EditorCommandsTest {
     }
 
     @Test
+    fun findsMatchesWithCaseSensitiveWholeWordAndRegexOptions() {
+        val body = "cat scatter Cat category dog42 dog"
+
+        assertEquals(
+            listOf(TextSelection(0, 3)),
+            EditorCommands.findMatches(
+                body = body,
+                query = "cat",
+                options = SearchOptions(caseSensitive = true, wholeWord = true),
+            ),
+        )
+        assertEquals(
+            TextSelection(29, 34),
+            EditorCommands.findNext(
+                body = body,
+                query = "dog\\d+",
+                selection = TextSelection(0),
+                options = SearchOptions(regex = true),
+            ),
+        )
+    }
+
+    @Test
+    fun ignoresInvalidRegexSearchesInsteadOfCrashing() {
+        assertEquals(
+            emptyList<TextSelection>(),
+            EditorCommands.findMatches("alpha", "[", SearchOptions(regex = true)),
+        )
+        assertNull(EditorCommands.findNext("alpha", "[", TextSelection(0), SearchOptions(regex = true)))
+    }
+
+    @Test
     fun replacesAllLiteralMatchesCaseInsensitively() {
         val result = EditorCommands.replaceAll(
             body = "one ONE tone",
@@ -196,6 +228,25 @@ class EditorCommandsTest {
 
         assertEquals("two two ttwo", result.body)
         assertEquals(TextSelection(0), result.selection)
+    }
+
+    @Test
+    fun replacesUsingWholeWordAndRegexSearchOptions() {
+        val wholeWord = EditorCommands.replaceAll(
+            body = "one tone one",
+            query = "one",
+            replacement = "two",
+            options = SearchOptions(wholeWord = true),
+        )
+        val regex = EditorCommands.replaceAll(
+            body = "A12 B7",
+            query = "\\d+",
+            replacement = "#",
+            options = SearchOptions(regex = true),
+        )
+
+        assertEquals("two tone two", wholeWord.body)
+        assertEquals("A# B#", regex.body)
     }
 
     @Test
