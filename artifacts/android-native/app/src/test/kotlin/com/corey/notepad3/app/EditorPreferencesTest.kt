@@ -92,4 +92,14 @@ class EditorPreferencesTest {
         assertFalse(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.CUT))
         assertFalse(controller.displayOptions.value.hiddenAccessoryButtons.contains(AccessoryToolbarButton.PASTE))
     }
+
+    @Test
+    fun accessoryToolbarDoesNotExposeDuplicateReplaceButton() {
+        val displayTitles = AccessoryToolbarButton.entries.map { it.displayTitle }
+
+        assertTrue(displayTitles.contains("Find"))
+        assertTrue(displayTitles.contains("Hide"))
+        assertFalse(displayTitles.contains("Replace"))
+        assertFalse(AccessoryToolbarButton.entries.any { it.storageName == "replace" })
+    }
 }

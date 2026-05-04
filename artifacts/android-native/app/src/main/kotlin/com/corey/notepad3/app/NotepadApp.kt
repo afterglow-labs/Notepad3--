@@ -392,11 +392,6 @@ fun NotepadApp(
         showMore = false
     }
 
-    fun openReplacePanel() {
-        showFind = true
-        showMore = false
-    }
-
     fun setTheme(name: ThemeName) {
         themeController.setThemePreference(ThemePreference.Named(name))
         showMore = false
@@ -481,7 +476,6 @@ fun NotepadApp(
                         onOpenFile = onOpenFile,
                         onSave = { onSaveFile(active) },
                         onFind = ::toggleFindPanel,
-                        onReplace = ::openReplacePanel,
                         onCompare = ::toggleComparePanel,
                         onMore = ::toggleMorePanel,
                         onPreferences = { openPreferencesPanel() },
@@ -559,14 +553,16 @@ fun NotepadApp(
                         onSwitchToMobile = ::switchToMobile,
                         onCloseApp = onCloseApp,
                     )
-                    Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
-                    DocumentStrip(
-                        documents = snapshot.documents,
-                        activeId = snapshot.activeId,
-                        palette = palette,
-                        onSelect = store::setActive,
-                        onClose = store::close,
-                    )
+                    if (shouldShowPersistentDocumentStrip(layoutMode)) {
+                        Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
+                        DocumentStrip(
+                            documents = snapshot.documents,
+                            activeId = snapshot.activeId,
+                            palette = palette,
+                            onSelect = store::setActive,
+                            onClose = store::close,
+                        )
+                    }
                     if (showDocuments) {
                         Spacer(Modifier.height(8.dp))
                         OpenDocumentsPanel(
@@ -781,7 +777,6 @@ fun NotepadApp(
                             onMoveDown = { moveCursorVertical(1) },
                             onMoveRight = { moveCursorBy(1) },
                             onFind = ::toggleFindPanel,
-                            onReplace = ::openReplacePanel,
                             onInsertDateTime = ::insertDateTime,
                             onOpenDocuments = ::toggleDocumentsPanel,
                             onSelectAll = ::selectAllText,
@@ -863,7 +858,6 @@ fun NotepadApp(
                             onCopy = ::copySelection,
                             onPaste = ::pasteFromClipboard,
                             onFind = ::toggleFindPanel,
-                            onReplace = ::openReplacePanel,
                             onInsertDateTime = ::insertDateTime,
                             onGotoLine = ::startGotoLine,
                             onCompare = ::toggleComparePanel,
@@ -997,7 +991,6 @@ private fun WindowBar(
     onOpenFile: () -> Unit,
     onSave: () -> Unit,
     onFind: () -> Unit,
-    onReplace: () -> Unit,
     onCompare: () -> Unit,
     onMore: () -> Unit,
     onPreferences: () -> Unit,
@@ -1084,7 +1077,6 @@ private fun WindowBar(
                 onSelectLine = onSelectLine,
                 onSelectParagraph = onSelectParagraph,
                 onFind = onFind,
-                onReplace = onReplace,
                 onGotoLine = onGotoLine,
                 onInsertDateTime = onInsertDateTime,
                 onDuplicateLine = onDuplicateLine,
@@ -1135,7 +1127,6 @@ private fun WindowBar(
                 onCopy = onCopy,
                 onPaste = onPaste,
                 onFind = onFind,
-                onReplace = onReplace,
                 onCompare = onCompare,
                 onMore = onMore,
                 onPreferences = onPreferences,
@@ -1159,6 +1150,7 @@ private fun WindowBar(
                 document = document,
                 palette = palette,
                 onNew = onNew,
+                onOpenDocuments = onOpenDocuments,
                 onFind = onFind,
                 onCycleTheme = onCycleTheme,
                 onMore = onMore,
@@ -1195,6 +1187,7 @@ private fun MobileTitleBar(
     document: TextDocument,
     palette: Palette,
     onNew: () -> Unit,
+    onOpenDocuments: () -> Unit,
     onFind: () -> Unit,
     onCycleTheme: () -> Unit,
     onMore: () -> Unit,
@@ -1246,6 +1239,7 @@ private fun MobileTitleBar(
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
+        RoundIconButton(icon = Icons.AutoMirrored.Filled.List, label = "Tabs", palette = palette, onClick = onOpenDocuments)
         RoundIconButton(icon = Icons.AutoMirrored.Filled.NoteAdd, label = "New document", palette = palette, onClick = onNew)
         RoundIconButton(icon = Icons.Filled.Search, label = "Find", palette = palette, onClick = onFind)
         RoundIconButton(icon = Icons.Filled.Brightness6, label = "Theme", palette = palette, onClick = onCycleTheme)
@@ -1442,7 +1436,6 @@ private fun ClassicMenuBar(
     onSelectLine: () -> Unit,
     onSelectParagraph: () -> Unit,
     onFind: () -> Unit,
-    onReplace: () -> Unit,
     onGotoLine: () -> Unit,
     onInsertDateTime: () -> Unit,
     onDuplicateLine: () -> Unit,
@@ -1611,8 +1604,7 @@ private fun ClassicMenuBar(
             palette = palette,
             onOpen = { openMenu = it },
         ) {
-            ClassicDropdownMenuItem("Find", Icons.Filled.Search, palette) { runMenuAction(onFind) }
-            ClassicDropdownMenuItem("Replace", Icons.Filled.FindReplace, palette) { runMenuAction(onReplace) }
+            ClassicDropdownMenuItem("Find/Replace...", Icons.Filled.Search, palette) { runMenuAction(onFind) }
             ClassicDropdownMenuItem("Goto line...", Icons.AutoMirrored.Filled.KeyboardTab, palette) { runMenuAction(onGotoLine) }
             ClassicDropdownSeparator(palette)
             ClassicDropdownMenuItem("Compare documents", Icons.Filled.ViewColumn, palette, enabled = compareEnabled, checked = compareActive) { runMenuAction(onCompare) }
@@ -1892,7 +1884,6 @@ private fun ClassicToolRack(
     onCopy: () -> Unit,
     onPaste: () -> Unit,
     onFind: () -> Unit,
-    onReplace: () -> Unit,
     onCompare: () -> Unit,
     onMore: () -> Unit,
     onPreferences: () -> Unit,
@@ -2001,12 +1992,6 @@ private fun ClassicToolRack(
                 label = "Find",
                 palette = palette,
                 onClick = onFind,
-            )
-            ClassicToolbarButton(
-                icon = Icons.Filled.FindReplace,
-                label = "Replace",
-                palette = palette,
-                onClick = onReplace,
             )
             ClassicToolbarButton(icon = Icons.Filled.AccessTime, label = "Date", palette = palette, enabled = !readOnly, onClick = onInsertDateTime)
             ToolbarDivider(palette)
@@ -2141,7 +2126,7 @@ private fun DocumentStrip(
             Row(
                 modifier = Modifier
                     .height(30.dp)
-                    .widthIn(min = 126.dp, max = 240.dp)
+                    .width(documentTabWidthDp(document.title).dp)
                     .background(
                         if (active) {
                             Brush.verticalGradient(listOf(palette.titleGradientStart.toColor(), palette.titleGradientEnd.toColor()))
@@ -2161,7 +2146,7 @@ private fun DocumentStrip(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    text = document.title,
+                    text = documentTabDisplayTitle(document.title),
                     color = if (active) palette.primaryForeground.toColor() else palette.foreground.toColor(),
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
@@ -2202,7 +2187,7 @@ private fun OpenDocumentsPanel(
             modifier = Modifier.padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("Open documents", color = palette.foreground.toColor(), style = MaterialTheme.typography.labelLarge)
+            Text("Tabs", color = palette.foreground.toColor(), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 CommandButton(text = "New", palette = palette, primary = true, onClick = onNew)
                 CommandButton(text = "Open File", palette = palette, onClick = onOpenFile)
@@ -2910,7 +2895,6 @@ private fun MorePanel(
     onCopy: () -> Unit,
     onPaste: () -> Unit,
     onFind: () -> Unit,
-    onReplace: () -> Unit,
     onInsertDateTime: () -> Unit,
     onGotoLine: () -> Unit,
     onCompare: () -> Unit,
@@ -3017,8 +3001,7 @@ private fun MorePanel(
             MenuActionRow(Icons.AutoMirrored.Filled.ShortText, "Select word", palette) { run(onSelectWord) }
             MenuActionRow(Icons.AutoMirrored.Filled.Subject, "Select line", palette) { run(onSelectLine) }
             MenuActionRow(Icons.Filled.FormatAlignJustify, "Select paragraph", palette) { run(onSelectParagraph) }
-            MenuActionRow(Icons.Filled.Search, "Find", palette) { run(onFind) }
-            MenuActionRow(Icons.Filled.FindReplace, "Find and replace", palette) { run(onReplace) }
+            MenuActionRow(Icons.Filled.Search, "Find/Replace", palette) { run(onFind) }
             MenuActionRow(Icons.AutoMirrored.Filled.KeyboardTab, "Go to line", palette) { run(onGotoLine) }
             MenuActionRow(Icons.Filled.AccessTime, "Insert date/time", palette, enabled = !readMode) { run(onInsertDateTime) }
             MenuActionRow(Icons.Filled.SortByAlpha, "Sort lines", palette, enabled = !readMode) { run(onSort) }
@@ -3544,7 +3527,6 @@ private fun MobileKeyboardAccessory(
     onMoveDown: () -> Unit,
     onMoveRight: () -> Unit,
     onFind: () -> Unit,
-    onReplace: () -> Unit,
     onInsertDateTime: () -> Unit,
     onOpenDocuments: () -> Unit,
     onSelectAll: () -> Unit,
@@ -3575,7 +3557,7 @@ private fun MobileKeyboardAccessory(
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_RIGHT, Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", onClick = onMoveRight),
         AccessoryToolbarAction(
             AccessoryToolbarButton.HIDE_KEYBOARD,
-            Icons.Filled.KeyboardArrowDown,
+            Icons.Filled.Keyboard,
             keyboardToggle.label,
             enabled = keyboardToggle.enabled,
             active = keyboardToggle.active,
@@ -3597,7 +3579,6 @@ private fun MobileKeyboardAccessory(
             onClick = onReadToggle,
         ),
         AccessoryToolbarAction(AccessoryToolbarButton.FIND, Icons.Filled.Search, "Find", active = findActive, onClick = onFind),
-        AccessoryToolbarAction(AccessoryToolbarButton.REPLACE, Icons.Filled.FindReplace, "Replace", onClick = onReplace),
         AccessoryToolbarAction(AccessoryToolbarButton.INSERT_DATE, Icons.Filled.AccessTime, "Date", enabled = !readOnly, onClick = onInsertDateTime),
         AccessoryToolbarAction(AccessoryToolbarButton.OPEN_DOCUMENTS, Icons.Filled.FolderOpen, "Open", onClick = onOpenDocuments),
         AccessoryToolbarAction(AccessoryToolbarButton.COMPARE, Icons.Filled.ViewColumn, "Compare", active = compareActive, onClick = onCompare),
@@ -4030,7 +4011,7 @@ private val AccessoryToolbarContentMode.preferenceIcon: ImageVector
 
 private val AccessoryToolbarButton.preferenceIcon: ImageVector
     get() = when (this) {
-        AccessoryToolbarButton.HIDE_KEYBOARD -> Icons.Filled.KeyboardArrowDown
+        AccessoryToolbarButton.HIDE_KEYBOARD -> Icons.Filled.Keyboard
         AccessoryToolbarButton.CUT -> Icons.Filled.ContentCut
         AccessoryToolbarButton.COPY -> Icons.Filled.ContentCopy
         AccessoryToolbarButton.PASTE -> Icons.Filled.ContentPaste
@@ -4041,7 +4022,6 @@ private val AccessoryToolbarButton.preferenceIcon: ImageVector
         AccessoryToolbarButton.REDO -> Icons.AutoMirrored.Filled.Redo
         AccessoryToolbarButton.READ_MODE -> Icons.Filled.Visibility
         AccessoryToolbarButton.FIND -> Icons.Filled.Search
-        AccessoryToolbarButton.REPLACE -> Icons.Filled.FindReplace
         AccessoryToolbarButton.INSERT_DATE -> Icons.Filled.AccessTime
         AccessoryToolbarButton.OPEN_DOCUMENTS -> Icons.Filled.FolderOpen
         AccessoryToolbarButton.COMPARE -> Icons.Filled.ViewColumn

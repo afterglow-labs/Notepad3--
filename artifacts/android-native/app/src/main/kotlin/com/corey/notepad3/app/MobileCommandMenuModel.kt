@@ -70,10 +70,31 @@ internal fun keyboardAccessoryToggleState(
     readOnly: Boolean,
 ): KeyboardAccessoryToggleState =
     KeyboardAccessoryToggleState(
-        label = "Hide Keyboard",
+        label = "Hide",
         active = keyboardSuppressed,
         enabled = !readOnly,
     )
+
+internal fun shouldShowPersistentDocumentStrip(layoutMode: EditorLayoutMode): Boolean =
+    layoutMode == EditorLayoutMode.CLASSIC
+
+private const val DOCUMENT_TAB_MAX_TITLE_CHARS = 26
+private const val DOCUMENT_TAB_MIN_WIDTH_DP = 86
+private const val DOCUMENT_TAB_MAX_WIDTH_DP = 184
+
+internal fun documentTabDisplayTitle(title: String): String {
+    val cleaned = title.trim().ifBlank { "untitled.txt" }
+    return if (cleaned.length <= DOCUMENT_TAB_MAX_TITLE_CHARS) {
+        cleaned
+    } else {
+        cleaned.take(DOCUMENT_TAB_MAX_TITLE_CHARS - 3) + "..."
+    }
+}
+
+internal fun documentTabWidthDp(title: String): Int {
+    val visibleChars = minOf(documentTabDisplayTitle(title).length, DOCUMENT_TAB_MAX_TITLE_CHARS)
+    return (23 + visibleChars * 7).coerceIn(DOCUMENT_TAB_MIN_WIDTH_DP, DOCUMENT_TAB_MAX_WIDTH_DP)
+}
 
 internal fun shouldShowSoftKeyboardOnEditorFocus(
     readOnly: Boolean,
@@ -178,8 +199,7 @@ private fun menuBarSections(): List<MobileMenuSection> =
         MobileMenuSection(
             title = "Search",
             rows = listOf(
-                "Find",
-                "Find and replace",
+                "Find/Replace",
                 "Go to line",
                 "Compare documents",
             ).map(::MobileMenuRow),

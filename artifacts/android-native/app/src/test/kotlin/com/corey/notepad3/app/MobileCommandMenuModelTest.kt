@@ -33,7 +33,10 @@ class MobileCommandMenuModelTest {
         assertEquals(listOf("File", "Edit", "Search", "View", "Language", "Settings", "Tools", "Help"), sections.map { it.title })
         assertTrue(sections.first { it.title == "File" }.rows.map { it.title }.contains("Open from Files"))
         assertTrue(sections.first { it.title == "Edit" }.rows.map { it.title }.contains("Toggle comment"))
-        assertTrue(sections.first { it.title == "Search" }.rows.map { it.title }.contains("Find and replace"))
+        val searchRows = sections.first { it.title == "Search" }.rows.map { it.title }
+        assertTrue(searchRows.contains("Find/Replace"))
+        assertFalse(searchRows.contains("Find and replace"))
+        assertFalse(searchRows.contains("Replace"))
         assertTrue(sections.first { it.title == "View" }.rows.map { it.title }.contains("Switch to classic layout"))
         assertTrue(sections.first { it.title == "Language" }.rows.map { it.title }.contains("Markdown"))
         assertTrue(sections.first { it.title == "Settings" }.rows.map { it.title }.contains("Appearance preferences"))
@@ -71,7 +74,7 @@ class MobileCommandMenuModelTest {
             readOnly = false,
         )
 
-        assertEquals("Hide Keyboard", toggle.label)
+        assertEquals("Hide", toggle.label)
         assertTrue(toggle.active)
         assertTrue(toggle.enabled)
         assertEquals(false, shouldShowSoftKeyboardOnEditorFocus(readOnly = false, keyboardSuppressed = true))
@@ -84,7 +87,7 @@ class MobileCommandMenuModelTest {
             readOnly = false,
         )
 
-        assertEquals("Hide Keyboard", toggle.label)
+        assertEquals("Hide", toggle.label)
         assertEquals(false, toggle.active)
         assertTrue(toggle.enabled)
         assertEquals(true, shouldShowSoftKeyboardOnEditorFocus(readOnly = false, keyboardSuppressed = false))
@@ -102,5 +105,20 @@ class MobileCommandMenuModelTest {
         assertEquals(170L, repeatDelayForIteration(0))
         assertTrue(repeatDelayForIteration(4) < repeatDelayForIteration(1))
         assertEquals(accessoryRepeatPressSpec.minimumDelayMillis, repeatDelayForIteration(100))
+    }
+
+    @Test
+    fun documentTabsUseCompactWidthsAndTruncateLongNames() {
+        assertEquals("notes.txt", documentTabDisplayTitle("notes.txt"))
+        assertEquals("very-long-filename-for-...", documentTabDisplayTitle("very-long-filename-for-notes-and-more.txt"))
+
+        assertEquals(86, documentTabWidthDp("notes.txt"))
+        assertEquals(184, documentTabWidthDp("very-long-filename-for-notes-and-more.txt"))
+    }
+
+    @Test
+    fun mobileLayoutUsesTabsFlyoutInsteadOfPersistentDocumentStrip() {
+        assertFalse(shouldShowPersistentDocumentStrip(EditorLayoutMode.MOBILE))
+        assertTrue(shouldShowPersistentDocumentStrip(EditorLayoutMode.CLASSIC))
     }
 }

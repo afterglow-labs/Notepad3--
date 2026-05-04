@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class AccessoryToolbarButton(val storageName: String, val displayTitle: String) {
-    HIDE_KEYBOARD("hide_keyboard", "Hide Keyboard"),
+    HIDE_KEYBOARD("hide_keyboard", "Hide"),
     CUT("cut", "Cut"),
     COPY("copy", "Copy"),
     PASTE("paste", "Paste"),
@@ -18,7 +18,6 @@ enum class AccessoryToolbarButton(val storageName: String, val displayTitle: Str
     REDO("redo", "Redo"),
     READ_MODE("read_mode", "Read"),
     FIND("find", "Find"),
-    REPLACE("replace", "Replace"),
     INSERT_DATE("insert_date", "Date"),
     OPEN_DOCUMENTS("open_documents", "Open"),
     COMPARE("compare", "Compare"),
