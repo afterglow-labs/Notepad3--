@@ -487,6 +487,7 @@ fun NotepadApp(
                         onToggleTrackpad = ::toggleTrackpad,
                         onToggleReadMode = ::toggleReadMode,
                         onToggleZenMode = ::toggleZenMode,
+                        onSwitchToClassic = ::switchToClassic,
                         onSwitchToMobile = ::switchToMobile,
                         onCloseApp = onCloseApp,
                     )
@@ -926,6 +927,7 @@ private fun WindowBar(
     onToggleTrackpad: () -> Unit,
     onToggleReadMode: () -> Unit,
     onToggleZenMode: () -> Unit,
+    onSwitchToClassic: () -> Unit,
     onSwitchToMobile: () -> Unit,
     onCloseApp: () -> Unit,
 ) {
@@ -1025,6 +1027,7 @@ private fun WindowBar(
                 onTogglePreview = onTogglePreview,
                 onToggleReadMode = onToggleReadMode,
                 onToggleZenMode = onToggleZenMode,
+                onSwitchToClassic = onSwitchToClassic,
                 onSort = onSort,
                 onTrim = onTrim,
                 onDuplicateLine = onDuplicateLine,
@@ -1059,6 +1062,7 @@ private fun MobileTitleBar(
     onTogglePreview: () -> Unit,
     onToggleReadMode: () -> Unit,
     onToggleZenMode: () -> Unit,
+    onSwitchToClassic: () -> Unit,
     onSort: () -> Unit,
     onTrim: () -> Unit,
     onDuplicateLine: () -> Unit,
@@ -1095,6 +1099,12 @@ private fun MobileTitleBar(
         RoundIconButton(icon = Icons.AutoMirrored.Filled.NoteAdd, label = "New document", palette = palette, onClick = onNew)
         RoundIconButton(icon = Icons.Filled.Search, label = "Find", palette = palette, onClick = onFind)
         RoundIconButton(icon = Icons.Filled.Brightness6, label = "Theme", palette = palette, onClick = onCycleTheme)
+        MobileModeButton(
+            icon = Icons.Filled.DesktopWindows,
+            label = "Classic",
+            palette = palette,
+            onClick = onSwitchToClassic,
+        )
         Box {
             RoundIconButton(icon = Icons.Filled.MoreHoriz, label = "More", palette = palette, onClick = { quickOpen = true })
             DropdownMenu(
@@ -1133,6 +1143,41 @@ private fun MobileTitleBar(
                 ClassicDropdownMenuItem("Close current doc", Icons.Filled.Close, palette, destructive = true) { runQuick(onCloseDocument) }
             }
         }
+    }
+}
+
+@Composable
+private fun MobileModeButton(
+    icon: ImageVector,
+    label: String,
+    palette: Palette,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .height(34.dp)
+            .defaultMinSize(minWidth = 82.dp)
+            .border(1.dp, palette.border.toColor(), RoundedCornerShape(4.dp))
+            .background(palette.card.toColor(), RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = palette.primary.toColor(),
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = label,
+            color = palette.foreground.toColor(),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+        )
     }
 }
 
