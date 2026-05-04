@@ -100,11 +100,49 @@ class MobileCommandMenuModelTest {
         assertTrue(accessoryStaticButtonRepeats("Up"))
         assertTrue(accessoryStaticButtonRepeats("Down"))
         assertTrue(accessoryStaticButtonRepeats("Delete"))
+        assertTrue(accessoryStaticButtonRepeats("Backspace"))
         assertFalse(accessoryStaticButtonRepeats("Shift"))
         assertEquals(360L, accessoryRepeatPressSpec.initialDelayMillis)
         assertEquals(170L, repeatDelayForIteration(0))
         assertTrue(repeatDelayForIteration(4) < repeatDelayForIteration(1))
         assertEquals(accessoryRepeatPressSpec.minimumDelayMillis, repeatDelayForIteration(100))
+    }
+
+    @Test
+    fun keyboardAccessoryUsesPagedDeckLikeDesktopKeyboardRows() {
+        assertEquals(
+            listOf("Tabs", "esc", "shift", "ctrl", "alt", "enter"),
+            accessoryDeckModifierStrip().map { it.label },
+        )
+        assertEquals(
+            listOf("Edit", "Nav", "123"),
+            accessoryDeckPages().map { it.title },
+        )
+        assertEquals(
+            listOf("Copy", "Cut", "Paste", "•••"),
+            accessoryDeckLeftRail().map { it.label },
+        )
+        assertEquals(
+            listOf("Backspace", "Enter"),
+            accessoryDeckRightRail().map { it.label },
+        )
+        assertEquals(
+            listOf("Undo", "Redo", "Find", "Word", "Line", "All", "Date", "Open", "Read", "Compare", "More", "Hide"),
+            accessoryDeckKeys(AccessoryDeckPage.EDIT).map { it.label },
+        )
+        assertEquals(
+            listOf("Home", "Up", "Pg Up", "End", "Down", "Pg Dn", "Left", "Right", "Tab"),
+            accessoryDeckKeys(AccessoryDeckPage.NAVIGATION).map { it.label },
+        )
+        assertEquals(
+            listOf("/", "7", "8", "9", "*", "4", "5", "6", "-", "1", "2", "3", "+", "0", "."),
+            accessoryDeckKeys(AccessoryDeckPage.NUMERIC).map { it.label },
+        )
+        assertTrue(accessoryDeckRightRail().first { it.label == "Backspace" }.repeatOnHold)
+        assertTrue(accessoryDeckKeys(AccessoryDeckPage.NAVIGATION).first { it.label == "Left" }.repeatOnHold)
+        assertEquals(AccessoryDeckPage.NAVIGATION, nextAccessoryDeckPage(AccessoryDeckPage.EDIT))
+        assertEquals(AccessoryDeckPage.NUMERIC, nextAccessoryDeckPage(AccessoryDeckPage.NAVIGATION))
+        assertEquals(AccessoryDeckPage.EDIT, nextAccessoryDeckPage(AccessoryDeckPage.NUMERIC))
     }
 
     @Test
