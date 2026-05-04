@@ -17,6 +17,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -71,6 +72,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +81,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.corey.notepad3.R
 import com.corey.notepad3.editor.EditResult
 import com.corey.notepad3.editor.EditorCommands
 import com.corey.notepad3.editor.EditorGutter
@@ -764,10 +767,12 @@ private fun WindowBar(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp)) {
         if (layoutMode == EditorLayoutMode.CLASSIC) {
+            val useNotepadPlusPlusIcons = activeTheme == ThemeName.CLASSIC
             ClassicCaptionBar(document = document, palette = palette, onCloseApp = onCloseApp)
             ClassicMenuBar(
                 palette = palette,
                 activeTheme = activeTheme,
+                useNotepadPlusPlusIcons = useNotepadPlusPlusIcons,
                 compareEnabled = compareEnabled,
                 compareActive = compareActive,
                 readOnly = readOnly,
@@ -805,6 +810,7 @@ private fun WindowBar(
             )
             ClassicToolRack(
                 palette = palette,
+                useNotepadPlusPlusIcons = useNotepadPlusPlusIcons,
                 compareEnabled = compareEnabled,
                 compareActive = compareActive,
                 canUndo = canUndo,
@@ -964,6 +970,7 @@ private fun ClassicMiniIconButton(
 private fun ClassicMenuBar(
     palette: Palette,
     activeTheme: ThemeName,
+    useNotepadPlusPlusIcons: Boolean,
     compareEnabled: Boolean,
     compareActive: Boolean,
     readOnly: Boolean,
@@ -1027,15 +1034,50 @@ private fun ClassicMenuBar(
             palette = palette,
             onOpen = { openMenu = it },
         ) {
-            ClassicDropdownMenuItem("New", Icons.AutoMirrored.Filled.NoteAdd, palette) { runMenuAction(onNew) }
-            ClassicDropdownMenuItem("Open...", Icons.Filled.FolderOpen, palette) { runMenuAction(onOpenFile) }
-            ClassicDropdownMenuItem("Open documents...", Icons.AutoMirrored.Filled.List, palette) { runMenuAction(onOpenDocuments) }
+            ClassicDropdownMenuItem(
+                "New",
+                Icons.AutoMirrored.Filled.NoteAdd,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_new),
+            ) { runMenuAction(onNew) }
+            ClassicDropdownMenuItem(
+                "Open...",
+                Icons.Filled.FolderOpen,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_open),
+            ) { runMenuAction(onOpenFile) }
+            ClassicDropdownMenuItem(
+                "Open documents...",
+                Icons.AutoMirrored.Filled.List,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_doc_list),
+            ) { runMenuAction(onOpenDocuments) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuItem("Save", Icons.Filled.Save, palette) { runMenuAction(onSave) }
-            ClassicDropdownMenuItem("Duplicate", Icons.Filled.ContentCopy, palette) { runMenuAction(onDuplicateDocument) }
+            ClassicDropdownMenuItem(
+                "Save",
+                Icons.Filled.Save,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_save),
+            ) { runMenuAction(onSave) }
+            ClassicDropdownMenuItem(
+                "Duplicate",
+                Icons.Filled.ContentCopy,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_copy),
+            ) { runMenuAction(onDuplicateDocument) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuItem("Close", Icons.Filled.Close, palette) { runMenuAction(onCloseDocument) }
-            ClassicDropdownMenuItem("Close others", Icons.Filled.DisabledByDefault, palette) { runMenuAction(onCloseOthers) }
+            ClassicDropdownMenuItem(
+                "Close",
+                Icons.Filled.Close,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_close),
+            ) { runMenuAction(onCloseDocument) }
+            ClassicDropdownMenuItem(
+                "Close others",
+                Icons.Filled.DisabledByDefault,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_close_all),
+            ) { runMenuAction(onCloseOthers) }
         }
         ClassicMenuButton(
             text = "Edit",
@@ -1044,20 +1086,62 @@ private fun ClassicMenuBar(
             palette = palette,
             onOpen = { openMenu = it },
         ) {
-            ClassicDropdownMenuItem("Undo", Icons.AutoMirrored.Filled.Undo, palette) { runMenuAction(onUndo) }
-            ClassicDropdownMenuItem("Redo", Icons.AutoMirrored.Filled.Redo, palette) { runMenuAction(onRedo) }
+            ClassicDropdownMenuItem(
+                "Undo",
+                Icons.AutoMirrored.Filled.Undo,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_undo),
+            ) { runMenuAction(onUndo) }
+            ClassicDropdownMenuItem(
+                "Redo",
+                Icons.AutoMirrored.Filled.Redo,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_redo),
+            ) { runMenuAction(onRedo) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuItem("Cut", Icons.Filled.ContentCut, palette, enabled = !readOnly) { runMenuAction(onCut) }
-            ClassicDropdownMenuItem("Copy", Icons.Filled.ContentCopy, palette) { runMenuAction(onCopy) }
-            ClassicDropdownMenuItem("Paste", Icons.Filled.ContentPaste, palette, enabled = !readOnly) { runMenuAction(onPaste) }
+            ClassicDropdownMenuItem(
+                "Cut",
+                Icons.Filled.ContentCut,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_cut),
+                enabled = !readOnly,
+            ) { runMenuAction(onCut) }
+            ClassicDropdownMenuItem(
+                "Copy",
+                Icons.Filled.ContentCopy,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_copy),
+            ) { runMenuAction(onCopy) }
+            ClassicDropdownMenuItem(
+                "Paste",
+                Icons.Filled.ContentPaste,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_paste),
+                enabled = !readOnly,
+            ) { runMenuAction(onPaste) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuItem("Select all", Icons.Filled.SelectAll, palette) { runMenuAction(onSelectAll) }
+            ClassicDropdownMenuItem(
+                "Select all",
+                Icons.Filled.SelectAll,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_all_chars),
+            ) { runMenuAction(onSelectAll) }
             ClassicDropdownMenuItem("Select word", Icons.AutoMirrored.Filled.ShortText, palette) { runMenuAction(onSelectWord) }
             ClassicDropdownMenuItem("Select line", Icons.AutoMirrored.Filled.Subject, palette) { runMenuAction(onSelectLine) }
             ClassicDropdownMenuItem("Select paragraph", Icons.Filled.FormatAlignJustify, palette) { runMenuAction(onSelectParagraph) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuItem("Find", Icons.Filled.Search, palette) { runMenuAction(onFind) }
-            ClassicDropdownMenuItem("Replace", Icons.Filled.FindReplace, palette) { runMenuAction(onReplace) }
+            ClassicDropdownMenuItem(
+                "Find",
+                Icons.Filled.Search,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_find),
+            ) { runMenuAction(onFind) }
+            ClassicDropdownMenuItem(
+                "Replace",
+                Icons.Filled.FindReplace,
+                palette,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_replace),
+            ) { runMenuAction(onReplace) }
             ClassicDropdownMenuItem("Goto line...", Icons.AutoMirrored.Filled.KeyboardTab, palette) { runMenuAction(onGotoLine) }
             ClassicDropdownSeparator(palette)
             ClassicDropdownMenuItem("Insert date/time", Icons.Filled.AccessTime, palette, enabled = !readOnly) { runMenuAction(onInsertDateTime) }
@@ -1163,6 +1247,7 @@ private fun ClassicDropdownMenuItem(
     text: String,
     icon: ImageVector,
     palette: Palette,
+    iconRes: Int? = null,
     enabled: Boolean = true,
     checked: Boolean = false,
     destructive: Boolean = false,
@@ -1182,7 +1267,16 @@ private fun ClassicDropdownMenuItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
+        if (iconRes != null) {
+            Image(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                alpha = if (enabled) 1f else 0.42f,
+                modifier = Modifier.size(17.dp),
+            )
+        } else {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
+        }
         Text(
             text = text,
             color = color,
@@ -1220,6 +1314,7 @@ private fun ClassicDropdownMenuHeader(text: String, palette: Palette) {
 @Composable
 private fun ClassicToolRack(
     palette: Palette,
+    useNotepadPlusPlusIcons: Boolean,
     compareEnabled: Boolean,
     compareActive: Boolean,
     canUndo: Boolean,
@@ -1270,24 +1365,106 @@ private fun ClassicToolRack(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.NoteAdd, label = "New", palette = palette, onClick = onNew)
-            ClassicToolbarButton(icon = Icons.Filled.FolderOpen, label = "Open", palette = palette, onClick = onOpenFile)
-            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.List, label = "Docs", palette = palette, onClick = onOpen)
-            ClassicToolbarButton(icon = Icons.Filled.Save, label = "Save", palette = palette, onClick = onSave)
-            ClassicToolbarButton(icon = Icons.Filled.ContentCopy, label = "Duplicate", palette = palette, onClick = onDuplicateDocument)
+            ClassicToolbarButton(
+                icon = Icons.AutoMirrored.Filled.NoteAdd,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_new),
+                label = "New",
+                palette = palette,
+                onClick = onNew,
+            )
+            ClassicToolbarButton(
+                icon = Icons.Filled.FolderOpen,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_open),
+                label = "Open",
+                palette = palette,
+                onClick = onOpenFile,
+            )
+            ClassicToolbarButton(
+                icon = Icons.AutoMirrored.Filled.List,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_doc_list),
+                label = "Docs",
+                palette = palette,
+                onClick = onOpen,
+            )
+            ClassicToolbarButton(
+                icon = Icons.Filled.Save,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_save),
+                label = "Save",
+                palette = palette,
+                onClick = onSave,
+            )
+            ClassicToolbarButton(
+                icon = Icons.Filled.ContentCopy,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_copy),
+                label = "Duplicate",
+                palette = palette,
+                onClick = onDuplicateDocument,
+            )
             ToolbarDivider(palette)
-            ClassicToolbarButton(icon = Icons.Filled.ContentCut, label = "Cut", palette = palette, enabled = !readOnly, onClick = onCut)
-            ClassicToolbarButton(icon = Icons.Filled.ContentCopy, label = "Copy", palette = palette, onClick = onCopy)
-            ClassicToolbarButton(icon = Icons.Filled.ContentPaste, label = "Paste", palette = palette, enabled = !readOnly, onClick = onPaste)
+            ClassicToolbarButton(
+                icon = Icons.Filled.ContentCut,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_cut),
+                label = "Cut",
+                palette = palette,
+                enabled = !readOnly,
+                onClick = onCut,
+            )
+            ClassicToolbarButton(
+                icon = Icons.Filled.ContentCopy,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_copy),
+                label = "Copy",
+                palette = palette,
+                onClick = onCopy,
+            )
+            ClassicToolbarButton(
+                icon = Icons.Filled.ContentPaste,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_paste),
+                label = "Paste",
+                palette = palette,
+                enabled = !readOnly,
+                onClick = onPaste,
+            )
             ToolbarDivider(palette)
-            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.Undo, label = "Undo", palette = palette, enabled = canUndo, onClick = onUndo)
-            ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.Redo, label = "Redo", palette = palette, enabled = canRedo, onClick = onRedo)
+            ClassicToolbarButton(
+                icon = Icons.AutoMirrored.Filled.Undo,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_undo),
+                label = "Undo",
+                palette = palette,
+                enabled = canUndo,
+                onClick = onUndo,
+            )
+            ClassicToolbarButton(
+                icon = Icons.AutoMirrored.Filled.Redo,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_redo),
+                label = "Redo",
+                palette = palette,
+                enabled = canRedo,
+                onClick = onRedo,
+            )
             ToolbarDivider(palette)
-            ClassicToolbarButton(icon = Icons.Filled.Search, label = "Find", palette = palette, onClick = onFind)
-            ClassicToolbarButton(icon = Icons.Filled.FindReplace, label = "Replace", palette = palette, onClick = onReplace)
+            ClassicToolbarButton(
+                icon = Icons.Filled.Search,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_find),
+                label = "Find",
+                palette = palette,
+                onClick = onFind,
+            )
+            ClassicToolbarButton(
+                icon = Icons.Filled.FindReplace,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_replace),
+                label = "Replace",
+                palette = palette,
+                onClick = onReplace,
+            )
             ClassicToolbarButton(icon = Icons.Filled.AccessTime, label = "Date", palette = palette, enabled = !readOnly, onClick = onInsertDateTime)
             ToolbarDivider(palette)
-            ClassicToolbarButton(icon = Icons.Filled.SelectAll, label = "Select all", palette = palette, onClick = onSelectAll)
+            ClassicToolbarButton(
+                icon = Icons.Filled.SelectAll,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_all_chars),
+                label = "Select all",
+                palette = palette,
+                onClick = onSelectAll,
+            )
             ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.Subject, label = "Line", palette = palette, onClick = onSelectLine)
             ClassicToolbarButton(icon = Icons.Filled.FormatAlignJustify, label = "Paragraph", palette = palette, onClick = onSelectParagraph)
             ToolbarDivider(palette)
@@ -1297,7 +1474,15 @@ private fun ClassicToolRack(
             ClassicToolbarButton(icon = Icons.AutoMirrored.Filled.FormatAlignLeft, label = "Trim", palette = palette, enabled = !readOnly, onClick = onTrim)
             ClassicToolbarButton(icon = Icons.Filled.SortByAlpha, label = "Sort", palette = palette, enabled = !readOnly, onClick = onSort)
             ToolbarDivider(palette)
-            ClassicToolbarButton(icon = Icons.Filled.ViewColumn, label = "Compare", palette = palette, enabled = compareEnabled, active = compareActive, onClick = onCompare)
+            ClassicToolbarButton(
+                icon = Icons.Filled.ViewColumn,
+                iconRes = nppIcon(useNotepadPlusPlusIcons, R.drawable.npp_sync_vertical),
+                label = "Compare",
+                palette = palette,
+                enabled = compareEnabled,
+                active = compareActive,
+                onClick = onCompare,
+            )
             ClassicToolbarButton(icon = Icons.Filled.VisibilityOff, label = "Read mode", palette = palette, active = readOnly, onClick = onToggleReadMode)
             ClassicToolbarButton(icon = Icons.Filled.Fullscreen, label = "Zen mode", palette = palette, onClick = onToggleZenMode)
             ClassicToolbarButton(icon = Icons.Filled.Palette, label = "Theme", palette = palette, onClick = onCycleTheme)
@@ -1309,6 +1494,7 @@ private fun ClassicToolRack(
 @Composable
 private fun ClassicToolbarButton(
     icon: ImageVector,
+    iconRes: Int? = null,
     label: String,
     palette: Palette,
     enabled: Boolean = true,
@@ -1331,9 +1517,21 @@ private fun ClassicToolbarButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = foreground, modifier = Modifier.size(18.dp))
+        if (iconRes != null) {
+            Image(
+                painter = painterResource(iconRes),
+                contentDescription = label,
+                alpha = if (enabled) 1f else 0.42f,
+                modifier = Modifier.size(18.dp),
+            )
+        } else {
+            Icon(icon, contentDescription = label, tint = foreground, modifier = Modifier.size(18.dp))
+        }
     }
 }
+
+private fun nppIcon(enabled: Boolean, iconRes: Int): Int? =
+    if (enabled) iconRes else null
 
 @Composable
 private fun ToolbarGlyph(
