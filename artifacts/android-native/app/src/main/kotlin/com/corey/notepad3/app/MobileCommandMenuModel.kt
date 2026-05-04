@@ -14,6 +14,21 @@ internal data class MobileMenuRow(
     val title: String,
 )
 
+internal data class ClassicSubmenuSpec(
+    val title: String,
+    val rows: List<MobileMenuRow>,
+    val expandable: Boolean = rows.isNotEmpty(),
+)
+
+internal enum class PreferencesDestination(
+    val title: String,
+) {
+    GENERAL("Preferences"),
+    APPEARANCE("Appearance"),
+    TOOLBAR("Toolbar"),
+    EDITOR("Editor"),
+}
+
 internal data class KeyboardAccessoryToggleState(
     val label: String,
     val active: Boolean,
@@ -71,6 +86,24 @@ internal fun mobileMenuSections(surface: MobileMenuSurface): List<MobileMenuSect
         MobileMenuSurface.TOP_QUICK -> topQuickMenuSections()
         MobileMenuSurface.MENU_BAR -> menuBarSections()
     }
+
+internal fun classicSettingsSubmenus(): List<ClassicSubmenuSpec> =
+    listOf(
+        ClassicSubmenuSpec(
+            title = "Appearance",
+            rows = listOf(
+                "Toolbar preferences...",
+                "Themes",
+            ).map(::MobileMenuRow),
+        ),
+    )
+
+internal fun preferencesHomeRows(): List<MobileMenuRow> =
+    listOf(
+        MobileMenuRow("Appearance"),
+        MobileMenuRow("Toolbar"),
+        MobileMenuRow("Editor"),
+    )
 
 private fun topQuickMenuSections(): List<MobileMenuSection> =
     listOf(

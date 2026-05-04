@@ -84,6 +84,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -151,6 +152,7 @@ fun NotepadApp(
     var compareTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var showMore by rememberSaveable { mutableStateOf(false) }
     var showPreferences by rememberSaveable { mutableStateOf(false) }
+    var preferencesDestination by rememberSaveable { mutableStateOf(PreferencesDestination.GENERAL) }
     var showTrackpad by rememberSaveable { mutableStateOf(false) }
     var shiftAnchor by rememberSaveable { mutableStateOf<Int?>(null) }
     var readMode by rememberSaveable { mutableStateOf(false) }
@@ -230,7 +232,8 @@ fun NotepadApp(
         showMore = !showMore
     }
 
-    fun openPreferencesPanel() {
+    fun openPreferencesPanel(destination: PreferencesDestination = PreferencesDestination.GENERAL) {
+        preferencesDestination = destination
         showPreferences = true
         showMore = false
     }
@@ -481,7 +484,9 @@ fun NotepadApp(
                         onReplace = ::openReplacePanel,
                         onCompare = ::toggleComparePanel,
                         onMore = ::toggleMorePanel,
-                        onPreferences = ::openPreferencesPanel,
+                        onPreferences = { openPreferencesPanel() },
+                        onAppearancePreferences = { openPreferencesPanel(PreferencesDestination.APPEARANCE) },
+                        onToolbarPreferences = { openPreferencesPanel(PreferencesDestination.TOOLBAR) },
                         onShowAbout = ::showAboutPanel,
                         onToggleWordWrap = editorPreferenceController::toggleWordWrap,
                         onToggleLineNumbers = editorPreferenceController::toggleLineNumbers,
@@ -932,7 +937,9 @@ fun NotepadApp(
                                 showMore = false
                             },
                             onCycleTheme = ::cycleTheme,
-                            onPreferences = ::openPreferencesPanel,
+                            onPreferences = { openPreferencesPanel() },
+                            onAppearancePreferences = { openPreferencesPanel(PreferencesDestination.APPEARANCE) },
+                            onToolbarPreferences = { openPreferencesPanel(PreferencesDestination.TOOLBAR) },
                             onShowAbout = ::showAboutPanel,
                             modifier = Modifier.padding(8.dp),
                         )
@@ -941,10 +948,12 @@ fun NotepadApp(
                 if (showPreferences) {
                     PreferencesPage(
                         palette = palette,
+                        destination = preferencesDestination,
                         activeTheme = resolvedTheme,
                         layoutMode = layoutMode,
                         displayOptions = displayOptions,
                         onDismiss = { showPreferences = false },
+                        onNavigate = { preferencesDestination = it },
                         onThemeSelect = ::setTheme,
                         onSetLayoutMode = editorPreferenceController::setLayoutMode,
                         onToggleWordWrap = editorPreferenceController::toggleWordWrap,
@@ -992,6 +1001,8 @@ private fun WindowBar(
     onCompare: () -> Unit,
     onMore: () -> Unit,
     onPreferences: () -> Unit,
+    onAppearancePreferences: () -> Unit,
+    onToolbarPreferences: () -> Unit,
     onShowAbout: () -> Unit,
     onToggleWordWrap: () -> Unit,
     onToggleLineNumbers: () -> Unit,
@@ -1093,6 +1104,8 @@ private fun WindowBar(
                 onRemoveDuplicateLines = onRemoveDuplicateLines,
                 onCompare = onCompare,
                 onPreferences = onPreferences,
+                onAppearancePreferences = onAppearancePreferences,
+                onToolbarPreferences = onToolbarPreferences,
                 onShowAbout = onShowAbout,
                 onThemeSelect = onThemeSelect,
                 onCycleTheme = onCycleTheme,
@@ -1449,6 +1462,8 @@ private fun ClassicMenuBar(
     onRemoveDuplicateLines: () -> Unit,
     onCompare: () -> Unit,
     onPreferences: () -> Unit,
+    onAppearancePreferences: () -> Unit,
+    onToolbarPreferences: () -> Unit,
     onShowAbout: () -> Unit,
     onThemeSelect: (ThemeName) -> Unit,
     onCycleTheme: () -> Unit,
@@ -1649,20 +1664,22 @@ private fun ClassicMenuBar(
         ) {
             ClassicDropdownMenuItem("Preferences...", Icons.Filled.Settings, palette) { runMenuAction(onPreferences) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuHeader("Appearance", palette)
-            ClassicDropdownMenuItem("Appearance preferences...", Icons.Filled.Settings, palette) { runMenuAction(onPreferences) }
-            ClassicDropdownMenuItem("Toolbar preferences...", Icons.Filled.Keyboard, palette) { runMenuAction(onPreferences) }
-            ClassicDropdownMenuItem("Next theme", Icons.Filled.Palette, palette) { runMenuAction(onCycleTheme) }
-            ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuHeader("Themes", palette)
-            ThemeName.entries.filterNot { it == ThemeName.CUSTOM }.forEach { theme ->
-                ClassicDropdownMenuItem(
-                    text = theme.displayTitle,
-                    icon = Icons.Filled.Palette,
-                    palette = palette,
-                    checked = theme == activeTheme,
-                ) {
-                    runMenuAction { onThemeSelect(theme) }
+            ClassicDropdownSubmenuItem("Appearance", Icons.Filled.Palette, palette) {
+                ClassicDropdownMenuItem("Appearance preferences...", Icons.Filled.Settings, palette) { runMenuAction(onAppearancePreferences) }
+                ClassicDropdownMenuItem("Toolbar preferences...", Icons.Filled.Keyboard, palette) { runMenuAction(onToolbarPreferences) }
+                ClassicDropdownSubmenuItem("Themes", Icons.Filled.Palette, palette) {
+                    ClassicDropdownMenuItem("Next theme", Icons.Filled.Palette, palette) { runMenuAction(onCycleTheme) }
+                    ClassicDropdownSeparator(palette)
+                    ThemeName.entries.filterNot { it == ThemeName.CUSTOM }.forEach { theme ->
+                        ClassicDropdownMenuItem(
+                            text = theme.displayTitle,
+                            icon = Icons.Filled.Palette,
+                            palette = palette,
+                            checked = theme == activeTheme,
+                        ) {
+                            runMenuAction { onThemeSelect(theme) }
+                        }
+                    }
                 }
             }
         }
@@ -1767,6 +1784,72 @@ private fun ClassicDropdownMenuItem(
         )
         if (checked) {
             Icon(Icons.Filled.Check, contentDescription = null, tint = palette.primary.toColor(), modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun ClassicDropdownSubmenuItem(
+    text: String,
+    icon: ImageVector,
+    palette: Palette,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var revealRequest by remember { mutableStateOf(0) }
+    LaunchedEffect(revealRequest) {
+        if (revealRequest > 0) {
+            delay(120)
+            expanded = true
+        }
+    }
+    val color = when {
+        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.55f)
+        expanded -> palette.primaryForeground.toColor()
+        else -> palette.foreground.toColor()
+    }
+    Box {
+        Row(
+            modifier = Modifier
+                .widthIn(min = 210.dp)
+                .height(28.dp)
+                .background(if (expanded) palette.primary.toColor() else Color.Transparent)
+                .clickable(enabled = enabled) {
+                    if (expanded) {
+                        expanded = false
+                    } else {
+                        revealRequest += 1
+                    }
+                }
+                .padding(start = 8.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
+            Text(
+                text = text,
+                color = color,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Open $text submenu",
+                tint = color,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            offset = DpOffset(x = 210.dp, y = (-28).dp),
+            modifier = Modifier
+                .background(palette.card.toColor())
+                .border(1.dp, palette.border.toColor()),
+        ) {
+            content()
         }
     }
 }
@@ -2586,10 +2669,12 @@ private fun diffStatusColor(status: LineDiff.Status?, palette: Palette): Color =
 @Composable
 private fun PreferencesPage(
     palette: Palette,
+    destination: PreferencesDestination,
     activeTheme: ThemeName,
     layoutMode: EditorLayoutMode,
     displayOptions: EditorDisplayOptions,
     onDismiss: () -> Unit,
+    onNavigate: (PreferencesDestination) -> Unit,
     onThemeSelect: (ThemeName) -> Unit,
     onSetLayoutMode: (EditorLayoutMode) -> Unit,
     onToggleWordWrap: () -> Unit,
@@ -2623,7 +2708,7 @@ private fun PreferencesPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Preferences",
+                    text = destination.title,
                     color = palette.foreground.toColor(),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     modifier = Modifier.weight(1f),
@@ -2637,93 +2722,130 @@ private fun PreferencesPage(
                     .verticalScroll(rememberScrollState())
                     .padding(bottom = 18.dp),
             ) {
-                MenuSectionHeader("Appearance", palette)
-                ThemeName.entries.filterNot { it == ThemeName.CUSTOM }.forEach { theme ->
-                    MenuActionRow(
-                        icon = Icons.Filled.Palette,
-                        title = theme.displayTitle,
-                        palette = palette,
-                        checked = theme == activeTheme,
-                    ) { onThemeSelect(theme) }
+                if (destination != PreferencesDestination.GENERAL) {
+                    MenuActionRow(Icons.AutoMirrored.Filled.ArrowBack, "All preferences", palette) {
+                        onNavigate(PreferencesDestination.GENERAL)
+                    }
                 }
 
-                MenuSectionHeader("Layout", palette)
-                MenuActionRow(
-                    icon = Icons.Filled.PhoneAndroid,
-                    title = "Mobile layout",
-                    palette = palette,
-                    checked = layoutMode == EditorLayoutMode.MOBILE,
-                ) { onSetLayoutMode(EditorLayoutMode.MOBILE) }
-                MenuActionRow(
-                    icon = Icons.Filled.DesktopWindows,
-                    title = "Classic layout",
-                    palette = palette,
-                    checked = layoutMode == EditorLayoutMode.CLASSIC,
-                ) { onSetLayoutMode(EditorLayoutMode.CLASSIC) }
+                when (destination) {
+                    PreferencesDestination.GENERAL -> {
+                        MenuSectionHeader("Preferences", palette)
+                        preferencesHomeRows().forEach { row ->
+                            val target = when (row.title) {
+                                "Appearance" -> PreferencesDestination.APPEARANCE
+                                "Toolbar" -> PreferencesDestination.TOOLBAR
+                                else -> PreferencesDestination.EDITOR
+                            }
+                            val icon = when (target) {
+                                PreferencesDestination.APPEARANCE -> Icons.Filled.Palette
+                                PreferencesDestination.TOOLBAR -> Icons.Filled.Keyboard
+                                PreferencesDestination.EDITOR -> Icons.Filled.TextFields
+                                PreferencesDestination.GENERAL -> Icons.Filled.Settings
+                            }
+                            MenuActionRow(icon, row.title, palette, subtitle = target.preferenceSubtitle) {
+                                onNavigate(target)
+                            }
+                        }
+                    }
 
-                MenuSectionHeader("Editor", palette)
-                MenuActionRow(Icons.AutoMirrored.Filled.WrapText, "Word wrap", palette, checked = displayOptions.wordWrap) {
-                    onToggleWordWrap()
-                }
-                MenuActionRow(Icons.Filled.FormatListNumbered, "Line numbers", palette, checked = displayOptions.lineNumbers) {
-                    onToggleLineNumbers()
-                }
-                PreferenceStepperRow(
-                    icon = Icons.Filled.FormatSize,
-                    title = "Font size",
-                    value = "${displayOptions.fontSizeSp} sp",
-                    palette = palette,
-                    onDown = onFontSizeDown,
-                    onUp = onFontSizeUp,
-                )
+                    PreferencesDestination.APPEARANCE -> {
+                        MenuSectionHeader("Themes", palette)
+                        ThemeName.entries.filterNot { it == ThemeName.CUSTOM }.forEach { theme ->
+                            MenuActionRow(
+                                icon = Icons.Filled.Palette,
+                                title = theme.displayTitle,
+                                palette = palette,
+                                checked = theme == activeTheme,
+                            ) { onThemeSelect(theme) }
+                        }
 
-                MenuSectionHeader("Toolbar", palette)
-                MenuActionRow(Icons.Filled.Keyboard, "Accessory toolbar", palette, checked = displayOptions.accessoryBar) {
-                    onToggleAccessoryBar()
-                }
-                PreferenceStepperRow(
-                    icon = Icons.Filled.ViewColumn,
-                    title = "Toolbar rows",
-                    value = displayOptions.accessoryToolbarRows.toString(),
-                    palette = palette,
-                    onDown = onToolbarRowsDown,
-                    onUp = onToolbarRowsUp,
-                )
-                AccessoryToolbarButtonSize.entries.forEach { size ->
-                    MenuActionRow(
-                        icon = Icons.Filled.FormatSize,
-                        title = "${size.displayTitle} buttons",
-                        palette = palette,
-                        checked = size == displayOptions.accessoryToolbarButtonSize,
-                    ) { onToolbarButtonSizeSelect(size) }
-                }
-                AccessoryToolbarContentMode.entries.forEach { mode ->
-                    MenuActionRow(
-                        icon = mode.preferenceIcon,
-                        title = mode.displayTitle,
-                        palette = palette,
-                        checked = mode == displayOptions.accessoryToolbarContentMode,
-                    ) { onToolbarContentModeSelect(mode) }
-                }
+                        MenuSectionHeader("Layout", palette)
+                        MenuActionRow(
+                            icon = Icons.Filled.PhoneAndroid,
+                            title = "Mobile layout",
+                            palette = palette,
+                            checked = layoutMode == EditorLayoutMode.MOBILE,
+                        ) { onSetLayoutMode(EditorLayoutMode.MOBILE) }
+                        MenuActionRow(
+                            icon = Icons.Filled.DesktopWindows,
+                            title = "Classic layout",
+                            palette = palette,
+                            checked = layoutMode == EditorLayoutMode.CLASSIC,
+                        ) { onSetLayoutMode(EditorLayoutMode.CLASSIC) }
+                        MenuActionRow(Icons.Filled.Keyboard, "Toolbar preferences", palette, subtitle = "Rows, size, pinned buttons") {
+                            onNavigate(PreferencesDestination.TOOLBAR)
+                        }
+                    }
 
-                MenuSectionHeader("Pinned Toolbar Buttons", palette)
-                AccessoryToolbarButton.entries.forEach { button ->
-                    MenuActionRow(
-                        icon = button.preferenceIcon,
-                        title = button.displayTitle,
-                        palette = palette,
-                        checked = button in displayOptions.staticAccessoryButtons,
-                    ) { onToggleStaticAccessoryButton(button) }
-                }
+                    PreferencesDestination.TOOLBAR -> {
+                        MenuSectionHeader("Toolbar", palette)
+                        MenuActionRow(Icons.Filled.Keyboard, "Accessory toolbar", palette, checked = displayOptions.accessoryBar) {
+                            onToggleAccessoryBar()
+                        }
+                        PreferenceStepperRow(
+                            icon = Icons.Filled.ViewColumn,
+                            title = "Toolbar rows",
+                            value = displayOptions.accessoryToolbarRows.toString(),
+                            palette = palette,
+                            onDown = onToolbarRowsDown,
+                            onUp = onToolbarRowsUp,
+                        )
+                        AccessoryToolbarButtonSize.entries.forEach { size ->
+                            MenuActionRow(
+                                icon = Icons.Filled.FormatSize,
+                                title = "${size.displayTitle} buttons",
+                                palette = palette,
+                                checked = size == displayOptions.accessoryToolbarButtonSize,
+                            ) { onToolbarButtonSizeSelect(size) }
+                        }
+                        AccessoryToolbarContentMode.entries.forEach { mode ->
+                            MenuActionRow(
+                                icon = mode.preferenceIcon,
+                                title = mode.displayTitle,
+                                palette = palette,
+                                checked = mode == displayOptions.accessoryToolbarContentMode,
+                            ) { onToolbarContentModeSelect(mode) }
+                        }
 
-                MenuSectionHeader("Hidden Toolbar Buttons", palette)
-                AccessoryToolbarButton.entries.forEach { button ->
-                    MenuActionRow(
-                        icon = button.preferenceIcon,
-                        title = button.displayTitle,
-                        palette = palette,
-                        checked = button in displayOptions.hiddenAccessoryButtons,
-                    ) { onToggleHiddenAccessoryButton(button) }
+                        MenuSectionHeader("Pinned Buttons", palette)
+                        AccessoryToolbarButton.entries.forEach { button ->
+                            MenuActionRow(
+                                icon = button.preferenceIcon,
+                                title = button.displayTitle,
+                                palette = palette,
+                                checked = button in displayOptions.staticAccessoryButtons,
+                            ) { onToggleStaticAccessoryButton(button) }
+                        }
+
+                        MenuSectionHeader("Hidden Buttons", palette)
+                        AccessoryToolbarButton.entries.forEach { button ->
+                            MenuActionRow(
+                                icon = button.preferenceIcon,
+                                title = button.displayTitle,
+                                palette = palette,
+                                checked = button in displayOptions.hiddenAccessoryButtons,
+                            ) { onToggleHiddenAccessoryButton(button) }
+                        }
+                    }
+
+                    PreferencesDestination.EDITOR -> {
+                        MenuSectionHeader("Editor", palette)
+                        MenuActionRow(Icons.AutoMirrored.Filled.WrapText, "Word wrap", palette, checked = displayOptions.wordWrap) {
+                            onToggleWordWrap()
+                        }
+                        MenuActionRow(Icons.Filled.FormatListNumbered, "Line numbers", palette, checked = displayOptions.lineNumbers) {
+                            onToggleLineNumbers()
+                        }
+                        PreferenceStepperRow(
+                            icon = Icons.Filled.FormatSize,
+                            title = "Font size",
+                            value = "${displayOptions.fontSizeSp} sp",
+                            palette = palette,
+                            onDown = onFontSizeDown,
+                            onUp = onFontSizeUp,
+                        )
+                    }
                 }
             }
         }
@@ -2827,6 +2949,8 @@ private fun MorePanel(
     onToggleAccessoryBar: () -> Unit,
     onCycleTheme: () -> Unit,
     onPreferences: () -> Unit,
+    onAppearancePreferences: () -> Unit,
+    onToolbarPreferences: () -> Unit,
     onShowAbout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2933,7 +3057,8 @@ private fun MorePanel(
 
             MenuSectionHeader("Settings", palette)
             MenuActionRow(Icons.Filled.Settings, "Preferences", palette, subtitle = "Full-screen settings page") { run(onPreferences) }
-            MenuActionRow(Icons.Filled.Settings, "Appearance", palette, subtitle = "Themes, toolbar, layout, editor display") { run(onPreferences) }
+            MenuActionRow(Icons.Filled.Palette, "Appearance", palette, subtitle = "Themes and layout") { run(onAppearancePreferences) }
+            MenuActionRow(Icons.Filled.Keyboard, "Toolbar", palette, subtitle = "Rows, size, pinned buttons") { run(onToolbarPreferences) }
             MenuActionRow(Icons.Filled.Code, "Change language", palette) { run(onChangeLanguage) }
             MenuActionRow(Icons.Filled.Palette, "Cycle theme", palette) { run(onCycleTheme) }
 
@@ -3886,6 +4011,14 @@ private val ThemeName.displayTitle: String
         ThemeName.CYBERPUNK -> "Cyberpunk"
         ThemeName.SUNSET -> "Rachel's Sunset"
         ThemeName.CUSTOM -> "Custom"
+    }
+
+private val PreferencesDestination.preferenceSubtitle: String
+    get() = when (this) {
+        PreferencesDestination.GENERAL -> ""
+        PreferencesDestination.APPEARANCE -> "Themes and layout"
+        PreferencesDestination.TOOLBAR -> "Rows, size, pinned and hidden buttons"
+        PreferencesDestination.EDITOR -> "Text wrapping, line numbers, font size"
     }
 
 private val AccessoryToolbarContentMode.preferenceIcon: ImageVector

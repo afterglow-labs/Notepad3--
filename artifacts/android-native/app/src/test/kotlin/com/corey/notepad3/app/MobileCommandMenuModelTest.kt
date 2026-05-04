@@ -41,6 +41,25 @@ class MobileCommandMenuModelTest {
     }
 
     @Test
+    fun classicSettingsMenuUsesExpandableAppearanceSubmenu() {
+        val submenu = classicSettingsSubmenus().single()
+
+        assertEquals("Appearance", submenu.title)
+        assertEquals(listOf("Toolbar preferences...", "Themes"), submenu.rows.map { it.title })
+        assertTrue(submenu.expandable)
+    }
+
+    @Test
+    fun preferencesHomeUsesCategoriesInsteadOfDumpingToolbarButtons() {
+        val rows = preferencesHomeRows().map { it.title }
+
+        assertEquals(listOf("Appearance", "Toolbar", "Editor"), rows)
+        assertFalse(rows.contains("Paste"))
+        assertFalse(rows.contains("Move line up"))
+        assertFalse(rows.contains("Hidden Toolbar Buttons"))
+    }
+
+    @Test
     fun keyboardAccessoryMoreUsesMenuBarSheet() {
         assertEquals(MobileMenuSurface.MENU_BAR, keyboardAccessoryMoreSurface())
     }
