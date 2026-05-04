@@ -81,6 +81,22 @@ class EditorCommandsTest {
     }
 
     @Test
+    fun deletesBackwardFromCaret() {
+        val result = EditorCommands.deleteBackward("abc", TextSelection(2))
+
+        assertEquals("ac", result.body)
+        assertEquals(TextSelection(1), result.selection)
+    }
+
+    @Test
+    fun deletesCurrentSelectionInsteadOfPreviousCharacter() {
+        val result = EditorCommands.deleteBackward("abcdef", TextSelection(2, 5))
+
+        assertEquals("abf", result.body)
+        assertEquals(TextSelection(2), result.selection)
+    }
+
+    @Test
     fun insertsTextOverTheCurrentSelection() {
         val result = EditorCommands.insertText(
             body = "abc",

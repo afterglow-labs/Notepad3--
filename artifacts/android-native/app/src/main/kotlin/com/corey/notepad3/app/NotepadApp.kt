@@ -28,12 +28,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -134,10 +136,15 @@ fun NotepadApp(
     var showGoto by rememberSaveable { mutableStateOf(false) }
     var gotoValue by rememberSaveable { mutableStateOf("") }
     var showLanguage by rememberSaveable { mutableStateOf(false) }
+    var showRename by rememberSaveable { mutableStateOf(false) }
+    var renameValue by rememberSaveable { mutableStateOf("") }
+    var showAbout by rememberSaveable { mutableStateOf(false) }
     var previewMode by rememberSaveable { mutableStateOf(false) }
     var showCompare by rememberSaveable { mutableStateOf(false) }
     var compareTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var showMore by rememberSaveable { mutableStateOf(false) }
+    var showTrackpad by rememberSaveable { mutableStateOf(false) }
+    var shiftAnchor by rememberSaveable { mutableStateOf<Int?>(null) }
     var readMode by rememberSaveable { mutableStateOf(false) }
     var zenMode by rememberSaveable { mutableStateOf(false) }
     var editorFocused by rememberSaveable { mutableStateOf(false) }
@@ -159,6 +166,7 @@ fun NotepadApp(
         history.record(result.body)
         historyVersion += 1
         selections[active.id] = safeSelection
+        shiftAnchor = null
         store.updateActive(body = result.body)
     }
 
@@ -167,6 +175,7 @@ fun NotepadApp(
         historyVersion += 1
         val safeSelection = activeSelection.clamped(nextBody.length)
         selections[active.id] = safeSelection
+        shiftAnchor = null
         store.updateActive(body = nextBody)
     }
 
@@ -179,6 +188,7 @@ fun NotepadApp(
 
     fun applySelection(selection: TextSelection) {
         selections[active.id] = selection.clamped(active.body.length)
+        shiftAnchor = null
         showMore = false
     }
 
@@ -234,6 +244,12 @@ fun NotepadApp(
         showMore = false
     }
 
+    fun startRenameDocument() {
+        renameValue = active.title
+        showRename = true
+        showMore = false
+    }
+
     fun selectAllText() {
         applySelection(EditorCommands.selectAll(active.body))
     }
@@ -244,6 +260,10 @@ fun NotepadApp(
 
     fun deleteLine() {
         if (!readMode) commitEdit(EditorCommands.deleteCurrentLine(active.body, activeSelection.min))
+    }
+
+    fun deleteBackward() {
+        if (!readMode) commitEdit(EditorCommands.deleteBackward(active.body, activeSelection))
     }
 
     fun trimSelection() {
@@ -290,38 +310,62 @@ fun NotepadApp(
         showMore = false
     }
 
+    fun toggleShiftSelection() {
+        shiftAnchor = if (shiftAnchor == null) activeSelection.min else null
+    }
+
+    fun movingCursor(): Int =
+        if (shiftAnchor != null) activeSelection.end.coerceIn(0, active.body.length) else activeSelection.min
+
+    fun updateCursorSelection(nextCaret: Int) {
+        val next = nextCaret.coerceIn(0, active.body.length)
+        val anchor = shiftAnchor
+        selections[active.id] = if (anchor == null) TextSelection(next) else TextSelection(anchor, next)
+    }
+
     fun moveCursorBy(delta: Int) {
-        val next = (activeSelection.min + delta).coerceIn(0, active.body.length)
-        selections[active.id] = TextSelection(next)
+        updateCursorSelection(movingCursor() + delta)
     }
 
     fun moveCursorVertical(direction: Int) {
         val body = active.body
-        val caret = activeSelection.min.coerceIn(0, body.length)
+        val caret = movingCursor().coerceIn(0, body.length)
         val lineStart = body.lastIndexOf('\n', (caret - 1).coerceAtLeast(0)) + 1
         val column = caret - lineStart
         if (direction < 0) {
             if (lineStart == 0) {
-                selections[active.id] = TextSelection(0)
+                updateCursorSelection(0)
                 return
             }
             val previousLineEnd = lineStart - 1
             val previousLineStart = body.lastIndexOf('\n', (previousLineEnd - 1).coerceAtLeast(0)) + 1
-            selections[active.id] = TextSelection((previousLineStart + column).coerceAtMost(previousLineEnd))
+            updateCursorSelection((previousLineStart + column).coerceAtMost(previousLineEnd))
         } else {
             val lineEnd = body.indexOf('\n', caret)
             if (lineEnd < 0) {
-                selections[active.id] = TextSelection(body.length)
+                updateCursorSelection(body.length)
                 return
             }
             val nextLineStart = lineEnd + 1
             val nextLineEnd = body.indexOf('\n', nextLineStart).takeIf { it >= 0 } ?: body.length
-            selections[active.id] = TextSelection((nextLineStart + column).coerceAtMost(nextLineEnd))
+            updateCursorSelection((nextLineStart + column).coerceAtMost(nextLineEnd))
         }
     }
 
     fun toggleReadMode() {
         readMode = !readMode
+        showMore = false
+    }
+
+    fun togglePreviewMode() {
+        if (active.language == DocumentLanguage.MARKDOWN) {
+            previewMode = !previewMode
+        }
+        showMore = false
+    }
+
+    fun toggleTrackpad() {
+        showTrackpad = !showTrackpad
         showMore = false
     }
 
@@ -350,6 +394,11 @@ fun NotepadApp(
         editorFocused = false
     }
 
+    fun showAboutPanel() {
+        showAbout = true
+        showMore = false
+    }
+
     if (zenMode) {
         BackHandler {
             zenMode = false
@@ -363,10 +412,11 @@ fun NotepadApp(
                 .background(palette.background.toColor()),
             color = palette.background.toColor(),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize(),
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize(),
+                ) {
                 if (!zenMode) {
                     WindowBar(
                         document = active,
@@ -379,6 +429,9 @@ fun NotepadApp(
                         canRedo = canRedo,
                         readOnly = readMode,
                         zenMode = zenMode,
+                        previewEnabled = active.language == DocumentLanguage.MARKDOWN,
+                        previewActive = showingMarkdownPreview,
+                        trackpadActive = showTrackpad,
                         onCycleTheme = ::cycleTheme,
                         onThemeSelect = ::setTheme,
                         onOpenDocuments = ::toggleDocumentsPanel,
@@ -398,6 +451,10 @@ fun NotepadApp(
                         onCopy = ::copySelection,
                         onPaste = ::pasteFromClipboard,
                         onGotoLine = ::startGotoLine,
+                        onChangeLanguage = {
+                            showLanguage = true
+                            showMore = false
+                        },
                         onSelectAll = ::selectAllText,
                         onSelectWord = ::selectWord,
                         onSelectLine = ::selectLine,
@@ -407,6 +464,9 @@ fun NotepadApp(
                         onDeleteLine = ::deleteLine,
                         onTrim = ::trimSelection,
                         onSort = ::sortDocument,
+                        onRenameDocument = ::startRenameDocument,
+                        onTogglePreview = ::togglePreviewMode,
+                        onToggleTrackpad = ::toggleTrackpad,
                         onToggleReadMode = ::toggleReadMode,
                         onToggleZenMode = ::toggleZenMode,
                         onSwitchToMobile = ::switchToMobile,
@@ -505,6 +565,29 @@ fun NotepadApp(
                             onCancel = { showLanguage = false },
                         )
                     }
+                    if (showRename) {
+                        Spacer(Modifier.height(8.dp))
+                        RenamePanel(
+                            value = renameValue,
+                            palette = palette,
+                            onValueChange = { renameValue = it },
+                            onSave = {
+                                val next = renameValue.trim()
+                                if (next.isNotEmpty()) {
+                                    store.rename(active.id, next)
+                                    showRename = false
+                                }
+                            },
+                            onCancel = { showRename = false },
+                        )
+                    }
+                    if (showAbout) {
+                        Spacer(Modifier.height(8.dp))
+                        AboutPanel(
+                            palette = palette,
+                            onDismiss = { showAbout = false },
+                        )
+                    }
                     if (showCompare) {
                         Spacer(Modifier.height(8.dp))
                         val compareTarget = chooseCompareTarget(
@@ -518,108 +601,6 @@ fun NotepadApp(
                             target = compareTarget,
                             palette = palette,
                             onTargetSelect = { compareTargetId = it },
-                        )
-                    }
-                    if (showMore) {
-                        Spacer(Modifier.height(8.dp))
-                        MorePanel(
-                            palette = palette,
-                            canUndo = historyVersion.let { history.canUndo },
-                            canRedo = historyVersion.let { history.canRedo },
-                            readMode = readMode,
-                            zenMode = zenMode,
-                            layoutMode = layoutMode,
-                            displayOptions = displayOptions,
-                            onUndo = ::undoEdit,
-                            onRedo = ::redoEdit,
-                            onInsertDateTime = ::insertDateTime,
-                            onGotoLine = ::startGotoLine,
-                            onSelectAll = ::selectAllText,
-                            onSelectWord = {
-                                applySelection(EditorCommands.selectWord(active.body, activeSelection.min))
-                            },
-                            onSelectLine = {
-                                applySelection(EditorCommands.selectLine(active.body, activeSelection.min))
-                            },
-                            onSelectParagraph = {
-                                applySelection(EditorCommands.selectParagraph(active.body, activeSelection.min))
-                            },
-                            onUppercase = {
-                                commitEdit(EditorCommands.uppercaseSelection(active.body, activeSelection))
-                            },
-                            onLowercase = {
-                                commitEdit(EditorCommands.lowercaseSelection(active.body, activeSelection))
-                            },
-                            onIndent = {
-                                commitEdit(EditorCommands.indentSelection(active.body, activeSelection))
-                            },
-                            onUnindent = {
-                                commitEdit(EditorCommands.unindentSelection(active.body, activeSelection))
-                            },
-                            onToggleComment = {
-                                active.language.lineCommentPrefix?.let { prefix ->
-                                    commitEdit(EditorCommands.toggleLineComment(active.body, activeSelection, prefix))
-                                }
-                            },
-                            onMoveLineUp = {
-                                commitEdit(EditorCommands.moveCurrentLineUp(active.body, activeSelection.min))
-                            },
-                            onMoveLineDown = {
-                                commitEdit(EditorCommands.moveCurrentLineDown(active.body, activeSelection.min))
-                            },
-                            onTrim = {
-                                commitEdit(EditorCommands.trimTrailingSpaces(active.body, activeSelection))
-                            },
-                            onTrimLeading = {
-                                commitEdit(EditorCommands.trimLeadingSpaces(active.body, activeSelection))
-                            },
-                            onJoinLines = {
-                                commitEdit(EditorCommands.joinSelectedLines(active.body, activeSelection))
-                            },
-                            onReverseLines = {
-                                commitEdit(EditorCommands.reverseLines(active.body))
-                            },
-                            onRemoveDuplicateLines = {
-                                commitEdit(EditorCommands.removeDuplicateLines(active.body))
-                            },
-                            onSort = ::sortDocument,
-                            onDuplicateLine = ::duplicateLine,
-                            onDeleteLine = ::deleteLine,
-                            onDuplicateDocument = {
-                                store.duplicateActive()
-                                showMore = false
-                            },
-                            onCloseOthers = {
-                                store.closeOthers(active.id)
-                                showMore = false
-                            },
-                            onSave = {
-                                onSaveFile(active)
-                                showMore = false
-                            },
-                            onChangeLanguage = {
-                                showLanguage = true
-                                showMore = false
-                            },
-                            commentEnabled = active.language.lineCommentPrefix != null,
-                            previewEnabled = active.language == DocumentLanguage.MARKDOWN,
-                            previewActive = showingMarkdownPreview,
-                            onTogglePreview = {
-                                previewMode = !previewMode
-                                showMore = false
-                            },
-                            onToggleReadMode = {
-                                readMode = !readMode
-                                showMore = false
-                            },
-                            onToggleZenMode = ::toggleZenMode,
-                            onToggleLayoutMode = ::toggleLayoutMode,
-                            onFontSizeDown = { editorPreferenceController.adjustFontSize(-1) },
-                            onFontSizeUp = { editorPreferenceController.adjustFontSize(1) },
-                            onToggleWordWrap = editorPreferenceController::toggleWordWrap,
-                            onToggleLineNumbers = editorPreferenceController::toggleLineNumbers,
-                            onToggleAccessoryBar = editorPreferenceController::toggleAccessoryBar,
-                            onCycleTheme = ::cycleTheme,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -664,41 +645,62 @@ fun NotepadApp(
                                 Icon(Icons.Filled.Add, contentDescription = "New document")
                             }
                         }
+                        if (layoutMode == EditorLayoutMode.MOBILE && showTrackpad) {
+                            TrackpadPanel(
+                                palette = palette,
+                                onMoveLeft = { moveCursorBy(-1) },
+                                onMoveUp = { moveCursorVertical(-1) },
+                                onMoveDown = { moveCursorVertical(1) },
+                                onMoveRight = { moveCursorBy(1) },
+                                onHide = { showTrackpad = false },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(16.dp),
+                            )
+                        }
                     }
                 }
                 if (!zenMode) {
                     Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
                     StatusBar(document = active, selection = activeSelection, readOnly = readMode, palette = palette)
                     Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
-                    if (layoutMode == EditorLayoutMode.MOBILE && editorFocused && displayOptions.accessoryBar) {
-                        MobileKeyboardAccessory(
-                            palette = palette,
-                            canUndo = canUndo,
-                            canRedo = canRedo,
-                            canCut = activeSelection.min != activeSelection.max && !readMode,
-                            canPaste = !readMode,
-                            readOnly = readMode,
-                            findActive = showFind,
-                            compareActive = showCompare,
-                            onHideKeyboard = ::hideKeyboard,
-                            onUndo = ::undoEdit,
-                            onRedo = ::redoEdit,
-                            onCut = ::cutSelection,
-                            onCopy = ::copySelection,
-                            onPaste = ::pasteFromClipboard,
-                            onMoveLeft = { moveCursorBy(-1) },
-                            onMoveUp = { moveCursorVertical(-1) },
-                            onMoveDown = { moveCursorVertical(1) },
-                            onMoveRight = { moveCursorBy(1) },
-                            onFind = ::toggleFindPanel,
-                            onReplace = ::openReplacePanel,
-                            onInsertDateTime = ::insertDateTime,
-                            onSelectWord = ::selectWord,
-                            onSelectLine = ::selectLine,
-                            onCompare = ::toggleComparePanel,
-                            onMore = ::toggleMorePanel,
-                        )
-                    } else if (layoutMode.showMobileBottomBar) {
+                    if (layoutMode == EditorLayoutMode.MOBILE) {
+                        if (editorFocused && displayOptions.accessoryBar) {
+                            MobileKeyboardAccessory(
+                                palette = palette,
+                                canUndo = canUndo,
+                                canRedo = canRedo,
+                                canCut = activeSelection.min != activeSelection.max && !readMode,
+                                canPaste = !readMode,
+                                readOnly = readMode,
+                                shiftActive = shiftAnchor != null,
+                                findActive = showFind,
+                                compareActive = showCompare,
+                                onHideKeyboard = ::hideKeyboard,
+                                onReadToggle = ::toggleReadMode,
+                                onUndo = ::undoEdit,
+                                onRedo = ::redoEdit,
+                                onCut = ::cutSelection,
+                                onCopy = ::copySelection,
+                                onPaste = ::pasteFromClipboard,
+                                onShiftToggle = ::toggleShiftSelection,
+                                onDeleteBackward = ::deleteBackward,
+                                onMoveLeft = { moveCursorBy(-1) },
+                                onMoveUp = { moveCursorVertical(-1) },
+                                onMoveDown = { moveCursorVertical(1) },
+                                onMoveRight = { moveCursorBy(1) },
+                                onFind = ::toggleFindPanel,
+                                onReplace = ::openReplacePanel,
+                                onInsertDateTime = ::insertDateTime,
+                                onOpenDocuments = ::toggleDocumentsPanel,
+                                onSelectAll = ::selectAllText,
+                                onSelectWord = ::selectWord,
+                                onSelectLine = ::selectLine,
+                                onCompare = ::toggleComparePanel,
+                                onMore = ::toggleMorePanel,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                        }
                         MobileBottomBar(
                             palette = palette,
                             compareEnabled = snapshot.documents.size > 1,
@@ -712,11 +714,146 @@ fun NotepadApp(
                         )
                     }
                 }
+                }
+                if (showMore) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.16f))
+                            .clickable { showMore = false },
+                    )
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        MorePanel(
+                            palette = palette,
+                            canUndo = historyVersion.let { history.canUndo },
+                            canRedo = historyVersion.let { history.canRedo },
+                            readMode = readMode,
+                            zenMode = zenMode,
+                            layoutMode = layoutMode,
+                            displayOptions = displayOptions,
+                            trackpadActive = showTrackpad,
+                            onDismiss = { showMore = false },
+                            onNew = {
+                                store.createBlank()
+                                showMore = false
+                            },
+                            onOpenDocuments = {
+                                showDocuments = true
+                                showMore = false
+                            },
+                            onOpenFile = {
+                                onOpenFile()
+                                showMore = false
+                            },
+                            onSave = {
+                                onSaveFile(active)
+                                showMore = false
+                            },
+                            onDuplicateDocument = {
+                                store.duplicateActive()
+                                showMore = false
+                            },
+                            onRenameDocument = ::startRenameDocument,
+                            onCloseDocument = {
+                                store.close(active.id)
+                                showMore = false
+                            },
+                            onCloseOthers = {
+                                store.closeOthers(active.id)
+                                showMore = false
+                            },
+                            onUndo = ::undoEdit,
+                            onRedo = ::redoEdit,
+                            onCut = ::cutSelection,
+                            onCopy = ::copySelection,
+                            onPaste = ::pasteFromClipboard,
+                            onFind = ::toggleFindPanel,
+                            onReplace = ::openReplacePanel,
+                            onInsertDateTime = ::insertDateTime,
+                            onGotoLine = ::startGotoLine,
+                            onCompare = ::toggleComparePanel,
+                            onSelectAll = ::selectAllText,
+                            onSelectWord = ::selectWord,
+                            onSelectLine = ::selectLine,
+                            onSelectParagraph = ::selectParagraph,
+                            onUppercase = {
+                                commitEdit(EditorCommands.uppercaseSelection(active.body, activeSelection))
+                            },
+                            onLowercase = {
+                                commitEdit(EditorCommands.lowercaseSelection(active.body, activeSelection))
+                            },
+                            onIndent = {
+                                commitEdit(EditorCommands.indentSelection(active.body, activeSelection))
+                            },
+                            onUnindent = {
+                                commitEdit(EditorCommands.unindentSelection(active.body, activeSelection))
+                            },
+                            onToggleComment = {
+                                active.language.lineCommentPrefix?.let { prefix ->
+                                    commitEdit(EditorCommands.toggleLineComment(active.body, activeSelection, prefix))
+                                }
+                            },
+                            onMoveLineUp = {
+                                commitEdit(EditorCommands.moveCurrentLineUp(active.body, activeSelection.min))
+                            },
+                            onMoveLineDown = {
+                                commitEdit(EditorCommands.moveCurrentLineDown(active.body, activeSelection.min))
+                            },
+                            onTrim = ::trimSelection,
+                            onTrimLeading = {
+                                commitEdit(EditorCommands.trimLeadingSpaces(active.body, activeSelection))
+                            },
+                            onJoinLines = {
+                                commitEdit(EditorCommands.joinSelectedLines(active.body, activeSelection))
+                            },
+                            onReverseLines = {
+                                commitEdit(EditorCommands.reverseLines(active.body))
+                            },
+                            onRemoveDuplicateLines = {
+                                commitEdit(EditorCommands.removeDuplicateLines(active.body))
+                            },
+                            onSort = ::sortDocument,
+                            onDuplicateLine = ::duplicateLine,
+                            onDeleteLine = ::deleteLine,
+                            onChangeLanguage = {
+                                showLanguage = true
+                                showMore = false
+                            },
+                            commentEnabled = active.language.lineCommentPrefix != null,
+                            previewEnabled = active.language == DocumentLanguage.MARKDOWN,
+                            previewActive = showingMarkdownPreview,
+                            onTogglePreview = ::togglePreviewMode,
+                            onToggleReadMode = ::toggleReadMode,
+                            onToggleZenMode = ::toggleZenMode,
+                            onToggleLayoutMode = ::toggleLayoutMode,
+                            onToggleTrackpad = ::toggleTrackpad,
+                            onFontSizeDown = { editorPreferenceController.adjustFontSize(-1) },
+                            onFontSizeUp = { editorPreferenceController.adjustFontSize(1) },
+                            onToggleWordWrap = {
+                                editorPreferenceController.toggleWordWrap()
+                                showMore = false
+                            },
+                            onToggleLineNumbers = {
+                                editorPreferenceController.toggleLineNumbers()
+                                showMore = false
+                            },
+                            onToggleAccessoryBar = {
+                                editorPreferenceController.toggleAccessoryBar()
+                                showMore = false
+                            },
+                            onCycleTheme = ::cycleTheme,
+                            onShowAbout = ::showAboutPanel,
+                            modifier = Modifier.padding(8.dp),
+                        )
+                    }
+                }
             }
         }
     }
 }
-
 @Composable
 private fun WindowBar(
     document: TextDocument,
@@ -729,6 +866,9 @@ private fun WindowBar(
     canRedo: Boolean,
     readOnly: Boolean,
     zenMode: Boolean,
+    previewEnabled: Boolean,
+    previewActive: Boolean,
+    trackpadActive: Boolean,
     onCycleTheme: () -> Unit,
     onThemeSelect: (ThemeName) -> Unit,
     onOpenDocuments: () -> Unit,
@@ -748,6 +888,7 @@ private fun WindowBar(
     onCopy: () -> Unit,
     onPaste: () -> Unit,
     onGotoLine: () -> Unit,
+    onChangeLanguage: () -> Unit,
     onSelectAll: () -> Unit,
     onSelectWord: () -> Unit,
     onSelectLine: () -> Unit,
@@ -757,6 +898,9 @@ private fun WindowBar(
     onDeleteLine: () -> Unit,
     onTrim: () -> Unit,
     onSort: () -> Unit,
+    onRenameDocument: () -> Unit,
+    onTogglePreview: () -> Unit,
+    onToggleTrackpad: () -> Unit,
     onToggleReadMode: () -> Unit,
     onToggleZenMode: () -> Unit,
     onSwitchToMobile: () -> Unit,
@@ -845,6 +989,27 @@ private fun WindowBar(
                 onFind = onFind,
                 onCycleTheme = onCycleTheme,
                 onMore = onMore,
+                compareEnabled = compareEnabled,
+                readOnly = readOnly,
+                zenMode = zenMode,
+                previewEnabled = previewEnabled,
+                previewActive = previewActive,
+                trackpadActive = trackpadActive,
+                onCompare = onCompare,
+                onChangeLanguage = onChangeLanguage,
+                onGotoLine = onGotoLine,
+                onToggleTrackpad = onToggleTrackpad,
+                onTogglePreview = onTogglePreview,
+                onToggleReadMode = onToggleReadMode,
+                onToggleZenMode = onToggleZenMode,
+                onSort = onSort,
+                onTrim = onTrim,
+                onDuplicateLine = onDuplicateLine,
+                onDeleteLine = onDeleteLine,
+                onInsertDateTime = onInsertDateTime,
+                onDuplicateDocument = onDuplicateDocument,
+                onRenameDocument = onRenameDocument,
+                onCloseDocument = onCloseDocument,
             )
         }
     }
@@ -858,7 +1023,35 @@ private fun MobileTitleBar(
     onFind: () -> Unit,
     onCycleTheme: () -> Unit,
     onMore: () -> Unit,
+    compareEnabled: Boolean,
+    readOnly: Boolean,
+    zenMode: Boolean,
+    previewEnabled: Boolean,
+    previewActive: Boolean,
+    trackpadActive: Boolean,
+    onCompare: () -> Unit,
+    onChangeLanguage: () -> Unit,
+    onGotoLine: () -> Unit,
+    onToggleTrackpad: () -> Unit,
+    onTogglePreview: () -> Unit,
+    onToggleReadMode: () -> Unit,
+    onToggleZenMode: () -> Unit,
+    onSort: () -> Unit,
+    onTrim: () -> Unit,
+    onDuplicateLine: () -> Unit,
+    onDeleteLine: () -> Unit,
+    onInsertDateTime: () -> Unit,
+    onDuplicateDocument: () -> Unit,
+    onRenameDocument: () -> Unit,
+    onCloseDocument: () -> Unit,
 ) {
+    var quickOpen by remember { mutableStateOf(false) }
+
+    fun runQuick(action: () -> Unit) {
+        quickOpen = false
+        action()
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -879,7 +1072,44 @@ private fun MobileTitleBar(
         RoundIconButton(icon = Icons.AutoMirrored.Filled.NoteAdd, label = "New document", palette = palette, onClick = onNew)
         RoundIconButton(icon = Icons.Filled.Search, label = "Find", palette = palette, onClick = onFind)
         RoundIconButton(icon = Icons.Filled.Brightness6, label = "Theme", palette = palette, onClick = onCycleTheme)
-        RoundIconButton(icon = Icons.Filled.MoreHoriz, label = "More", palette = palette, onClick = onMore)
+        Box {
+            RoundIconButton(icon = Icons.Filled.MoreHoriz, label = "More", palette = palette, onClick = { quickOpen = true })
+            DropdownMenu(
+                expanded = quickOpen,
+                onDismissRequest = { quickOpen = false },
+                modifier = Modifier
+                    .background(palette.card.toColor())
+                    .border(1.dp, palette.border.toColor()),
+            ) {
+                ClassicDropdownMenuHeader("Quick actions", palette)
+                ClassicDropdownMenuItem("Preferences...", Icons.Filled.Settings, palette) { runQuick(onMore) }
+                ClassicDropdownMenuItem("Compare documents", Icons.Filled.ViewColumn, palette, enabled = compareEnabled) { runQuick(onCompare) }
+                ClassicDropdownMenuItem("Change language", Icons.Filled.Code, palette) { runQuick(onChangeLanguage) }
+                ClassicDropdownMenuItem("Go to line...", Icons.AutoMirrored.Filled.KeyboardTab, palette) { runQuick(onGotoLine) }
+                ClassicDropdownMenuItem("Virtual trackpad", Icons.Filled.TouchApp, palette, checked = trackpadActive) { runQuick(onToggleTrackpad) }
+                ClassicDropdownMenuItem(
+                    if (previewActive) "Edit markdown" else "Preview markdown",
+                    if (previewActive) Icons.Filled.Edit else Icons.Filled.Visibility,
+                    palette,
+                    enabled = previewEnabled,
+                    checked = previewActive,
+                ) { runQuick(onTogglePreview) }
+                ClassicDropdownMenuItem("Read mode", if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, palette, checked = readOnly) { runQuick(onToggleReadMode) }
+                ClassicDropdownMenuItem("Zen mode", if (zenMode) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen, palette, checked = zenMode) { runQuick(onToggleZenMode) }
+                ClassicDropdownSeparator(palette)
+                ClassicDropdownMenuHeader("Line tools", palette)
+                ClassicDropdownMenuItem("Sort lines", Icons.Filled.SortByAlpha, palette, enabled = !readOnly) { runQuick(onSort) }
+                ClassicDropdownMenuItem("Trim trailing spaces", Icons.AutoMirrored.Filled.FormatAlignLeft, palette, enabled = !readOnly) { runQuick(onTrim) }
+                ClassicDropdownMenuItem("Duplicate current line", Icons.Filled.AddBox, palette, enabled = !readOnly) { runQuick(onDuplicateLine) }
+                ClassicDropdownMenuItem("Delete current line", Icons.Filled.IndeterminateCheckBox, palette, enabled = !readOnly, destructive = true) { runQuick(onDeleteLine) }
+                ClassicDropdownSeparator(palette)
+                ClassicDropdownMenuHeader("Document", palette)
+                ClassicDropdownMenuItem("Insert date/time", Icons.Filled.AccessTime, palette, enabled = !readOnly) { runQuick(onInsertDateTime) }
+                ClassicDropdownMenuItem("Duplicate current doc", Icons.Filled.ContentCopy, palette) { runQuick(onDuplicateDocument) }
+                ClassicDropdownMenuItem("Rename current doc", Icons.Filled.Edit, palette) { runQuick(onRenameDocument) }
+                ClassicDropdownMenuItem("Close current doc", Icons.Filled.Close, palette, destructive = true) { runQuick(onCloseDocument) }
+            }
+        }
     }
 }
 
@@ -1814,6 +2044,70 @@ private fun GotoPanel(
 }
 
 @Composable
+private fun RenamePanel(
+    value: String,
+    palette: Palette,
+    onValueChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Surface(
+        color = palette.card.toColor(),
+        border = BorderStroke(1.dp, palette.border.toColor()),
+        shape = RoundedCornerShape(palette.radius.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Rename document", color = palette.foreground.toColor(), style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    placeholder = { Text("Document name") },
+                )
+                CommandButton(text = "Save", palette = palette, enabled = value.trim().isNotEmpty(), onClick = onSave)
+                CommandButton(text = "Cancel", palette = palette, onClick = onCancel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutPanel(
+    palette: Palette,
+    onDismiss: () -> Unit,
+) {
+    Surface(
+        color = palette.card.toColor(),
+        border = BorderStroke(1.dp, palette.border.toColor()),
+        shape = RoundedCornerShape(palette.radius.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Notepad 3++",
+                color = palette.foreground.toColor(),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            )
+            Text(
+                text = "A mobile text editor with classic desktop utility chrome.",
+                color = palette.mutedForeground.toColor(),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            CommandButton(text = "Close", palette = palette, modifier = Modifier.fillMaxWidth(), onClick = onDismiss)
+        }
+    }
+}
+
+@Composable
 private fun MarkdownPreviewPane(
     document: TextDocument,
     palette: Palette,
@@ -2014,10 +2308,26 @@ private fun MorePanel(
     zenMode: Boolean,
     layoutMode: EditorLayoutMode,
     displayOptions: EditorDisplayOptions,
+    trackpadActive: Boolean,
+    onDismiss: () -> Unit,
+    onNew: () -> Unit,
+    onOpenDocuments: () -> Unit,
+    onOpenFile: () -> Unit,
+    onSave: () -> Unit,
+    onDuplicateDocument: () -> Unit,
+    onRenameDocument: () -> Unit,
+    onCloseDocument: () -> Unit,
+    onCloseOthers: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onCut: () -> Unit,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit,
+    onFind: () -> Unit,
+    onReplace: () -> Unit,
     onInsertDateTime: () -> Unit,
     onGotoLine: () -> Unit,
+    onCompare: () -> Unit,
     onSelectAll: () -> Unit,
     onSelectWord: () -> Unit,
     onSelectLine: () -> Unit,
@@ -2037,9 +2347,6 @@ private fun MorePanel(
     onSort: () -> Unit,
     onDuplicateLine: () -> Unit,
     onDeleteLine: () -> Unit,
-    onDuplicateDocument: () -> Unit,
-    onCloseOthers: () -> Unit,
-    onSave: () -> Unit,
     onChangeLanguage: () -> Unit,
     commentEnabled: Boolean,
     previewEnabled: Boolean,
@@ -2048,126 +2355,219 @@ private fun MorePanel(
     onToggleReadMode: () -> Unit,
     onToggleZenMode: () -> Unit,
     onToggleLayoutMode: () -> Unit,
+    onToggleTrackpad: () -> Unit,
     onFontSizeDown: () -> Unit,
     onFontSizeUp: () -> Unit,
     onToggleWordWrap: () -> Unit,
     onToggleLineNumbers: () -> Unit,
     onToggleAccessoryBar: () -> Unit,
     onCycleTheme: () -> Unit,
+    onShowAbout: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    fun run(action: () -> Unit) {
+        onDismiss()
+        action()
+    }
+
     Surface(
         color = palette.card.toColor(),
         border = BorderStroke(1.dp, palette.border.toColor()),
-        shape = RoundedCornerShape(palette.radius.dp),
-        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(topStart = palette.radius.dp, topEnd = palette.radius.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = 560.dp),
     ) {
         Column(
-            modifier = Modifier.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Undo", palette = palette, enabled = canUndo, modifier = Modifier.weight(1f), onClick = onUndo)
-                CommandButton(text = "Redo", palette = palette, enabled = canRedo, modifier = Modifier.weight(1f), onClick = onRedo)
-                CommandButton(text = "Date/Time", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onInsertDateTime)
-                CommandButton(text = "Goto", palette = palette, modifier = Modifier.weight(1f), onClick = onGotoLine)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Select All", palette = palette, modifier = Modifier.weight(1f), onClick = onSelectAll)
-                CommandButton(text = "Word", palette = palette, modifier = Modifier.weight(1f), onClick = onSelectWord)
-                CommandButton(text = "Line", palette = palette, modifier = Modifier.weight(1f), onClick = onSelectLine)
-                CommandButton(text = "Paragraph", palette = palette, modifier = Modifier.weight(1f), onClick = onSelectParagraph)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Upper", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onUppercase)
-                CommandButton(text = "Lower", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onLowercase)
-                CommandButton(text = "Indent", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onIndent)
-                CommandButton(text = "Unindent", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onUnindent)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Trim", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onTrim)
-                CommandButton(text = "Comment", palette = palette, enabled = !readMode && commentEnabled, modifier = Modifier.weight(1f), onClick = onToggleComment)
-                CommandButton(text = "Move Up", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onMoveLineUp)
-                CommandButton(text = "Move Down", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onMoveLineDown)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Trim Lead", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onTrimLeading)
-                CommandButton(text = "Join", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onJoinLines)
-                CommandButton(text = "Reverse", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onReverseLines)
-                CommandButton(text = "Unique", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onRemoveDuplicateLines)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Sort", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onSort)
-                CommandButton(text = "Dup Line", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onDuplicateLine)
-                CommandButton(text = "Del Line", palette = palette, enabled = !readMode, modifier = Modifier.weight(1f), onClick = onDeleteLine)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Save", palette = palette, modifier = Modifier.weight(1f), onClick = onSave)
-                CommandButton(text = "Dup Doc", palette = palette, modifier = Modifier.weight(1f), onClick = onDuplicateDocument)
-                CommandButton(text = "Close Others", palette = palette, modifier = Modifier.weight(1f), onClick = onCloseOthers)
-                CommandButton(text = "Lang", palette = palette, modifier = Modifier.weight(1f), onClick = onChangeLanguage)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(
-                    text = if (previewActive) "Edit" else "Preview",
-                    palette = palette,
-                    enabled = previewEnabled,
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(palette.chromeGradientStart.toColor(), palette.chromeGradientEnd.toColor()),
+                        ),
+                    )
+                    .border(1.dp, palette.border.toColor())
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "More",
+                    color = palette.foreground.toColor(),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     modifier = Modifier.weight(1f),
-                    onClick = onTogglePreview,
                 )
-                CommandButton(text = "Theme", palette = palette, modifier = Modifier.weight(1f), onClick = onCycleTheme)
+                IconButton(onClick = onDismiss, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close menu", tint = palette.foreground.toColor())
+                }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(
-                    text = if (readMode) "Edit Mode" else "Read Mode",
-                    palette = palette,
-                    modifier = Modifier.weight(1f),
-                    onClick = onToggleReadMode,
-                )
-                CommandButton(
-                    text = if (zenMode) "Exit Zen" else "Zen",
-                    palette = palette,
-                    modifier = Modifier.weight(1f),
-                    onClick = onToggleZenMode,
-                )
-                CommandButton(
-                    text = layoutMode.toggleLabel,
-                    palette = palette,
-                    modifier = Modifier.weight(1f),
-                    onClick = onToggleLayoutMode,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "Font -", palette = palette, modifier = Modifier.weight(1f), onClick = onFontSizeDown)
-                CommandButton(
-                    text = "${displayOptions.fontSizeSp} sp",
-                    palette = palette,
-                    enabled = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = {},
-                )
-                CommandButton(text = "Font +", palette = palette, modifier = Modifier.weight(1f), onClick = onFontSizeUp)
-                CommandButton(
-                    text = if (displayOptions.wordWrap) "Wrap On" else "Wrap Off",
-                    palette = palette,
-                    modifier = Modifier.weight(1f),
-                    onClick = onToggleWordWrap,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(
-                    text = if (displayOptions.lineNumbers) "Lines On" else "Lines Off",
-                    palette = palette,
-                    modifier = Modifier.weight(1f),
-                    onClick = onToggleLineNumbers,
-                )
-                CommandButton(
-                    text = if (displayOptions.accessoryBar) "Keyboard Bar On" else "Keyboard Bar Off",
-                    palette = palette,
-                    modifier = Modifier.weight(1f),
-                    onClick = onToggleAccessoryBar,
+
+            MenuSectionHeader("File", palette)
+            MenuActionRow(Icons.AutoMirrored.Filled.NoteAdd, "New blank", palette) { run(onNew) }
+            MenuActionRow(Icons.AutoMirrored.Filled.List, "Open documents", palette) { run(onOpenDocuments) }
+            MenuActionRow(Icons.Filled.FolderOpen, "Open from Files", palette) { run(onOpenFile) }
+            MenuActionRow(Icons.Filled.Save, "Save", palette) { run(onSave) }
+            MenuActionRow(Icons.Filled.ContentCopy, "Duplicate current", palette) { run(onDuplicateDocument) }
+            MenuActionRow(Icons.Filled.Edit, "Rename current", palette) { run(onRenameDocument) }
+            MenuActionRow(Icons.Filled.Close, "Close current", palette, destructive = true) { run(onCloseDocument) }
+            MenuActionRow(Icons.Filled.DisabledByDefault, "Close others", palette) { run(onCloseOthers) }
+
+            MenuSectionHeader("Edit", palette)
+            MenuActionRow(Icons.AutoMirrored.Filled.Undo, "Undo", palette, enabled = canUndo) { run(onUndo) }
+            MenuActionRow(Icons.AutoMirrored.Filled.Redo, "Redo", palette, enabled = canRedo) { run(onRedo) }
+            MenuActionRow(Icons.Filled.ContentCut, "Cut", palette, enabled = !readMode) { run(onCut) }
+            MenuActionRow(Icons.Filled.ContentCopy, "Copy", palette) { run(onCopy) }
+            MenuActionRow(Icons.Filled.ContentPaste, "Paste", palette, enabled = !readMode) { run(onPaste) }
+            MenuActionRow(Icons.Filled.SelectAll, "Select all", palette) { run(onSelectAll) }
+            MenuActionRow(Icons.AutoMirrored.Filled.ShortText, "Select word", palette) { run(onSelectWord) }
+            MenuActionRow(Icons.AutoMirrored.Filled.Subject, "Select line", palette) { run(onSelectLine) }
+            MenuActionRow(Icons.Filled.FormatAlignJustify, "Select paragraph", palette) { run(onSelectParagraph) }
+            MenuActionRow(Icons.Filled.Search, "Find", palette) { run(onFind) }
+            MenuActionRow(Icons.Filled.FindReplace, "Find and replace", palette) { run(onReplace) }
+            MenuActionRow(Icons.AutoMirrored.Filled.KeyboardTab, "Go to line", palette) { run(onGotoLine) }
+            MenuActionRow(Icons.Filled.AccessTime, "Insert date/time", palette, enabled = !readMode) { run(onInsertDateTime) }
+            MenuActionRow(Icons.Filled.SortByAlpha, "Sort lines", palette, enabled = !readMode) { run(onSort) }
+            MenuActionRow(Icons.AutoMirrored.Filled.FormatAlignLeft, "Trim trailing spaces", palette, enabled = !readMode) { run(onTrim) }
+            MenuActionRow(Icons.Filled.ContentCut, "Trim leading spaces", palette, enabled = !readMode) { run(onTrimLeading) }
+            MenuActionRow(Icons.AutoMirrored.Filled.FormatAlignLeft, "Join selected lines", palette, enabled = !readMode) { run(onJoinLines) }
+            MenuActionRow(Icons.Filled.SwapVert, "Reverse lines", palette, enabled = !readMode) { run(onReverseLines) }
+            MenuActionRow(Icons.Filled.FilterList, "Unique lines", palette, enabled = !readMode) { run(onRemoveDuplicateLines) }
+            MenuActionRow(Icons.Filled.FormatSize, "Uppercase selection", palette, enabled = !readMode) { run(onUppercase) }
+            MenuActionRow(Icons.Filled.TextFields, "Lowercase selection", palette, enabled = !readMode) { run(onLowercase) }
+            MenuActionRow(Icons.AutoMirrored.Filled.FormatIndentIncrease, "Indent", palette, enabled = !readMode) { run(onIndent) }
+            MenuActionRow(Icons.AutoMirrored.Filled.FormatIndentDecrease, "Unindent", palette, enabled = !readMode) { run(onUnindent) }
+            MenuActionRow(Icons.Filled.Code, "Toggle comment", palette, enabled = !readMode && commentEnabled) { run(onToggleComment) }
+            MenuActionRow(Icons.Filled.KeyboardArrowUp, "Move line up", palette, enabled = !readMode) { run(onMoveLineUp) }
+            MenuActionRow(Icons.Filled.KeyboardArrowDown, "Move line down", palette, enabled = !readMode) { run(onMoveLineDown) }
+            MenuActionRow(Icons.Filled.AddBox, "Duplicate current line", palette, enabled = !readMode) { run(onDuplicateLine) }
+            MenuActionRow(Icons.Filled.IndeterminateCheckBox, "Delete current line", palette, enabled = !readMode, destructive = true) { run(onDeleteLine) }
+
+            MenuSectionHeader("View", palette)
+            MenuActionRow(if (readMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, "Read mode", palette, checked = readMode) { run(onToggleReadMode) }
+            MenuActionRow(if (zenMode) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen, "Zen mode", palette, checked = zenMode) { run(onToggleZenMode) }
+            MenuActionRow(Icons.Filled.ViewColumn, "Compare documents", palette) { run(onCompare) }
+            MenuActionRow(
+                if (previewActive) Icons.Filled.Edit else Icons.Filled.Visibility,
+                if (previewActive) "Edit markdown" else "Preview markdown",
+                palette,
+                enabled = previewEnabled,
+                checked = previewActive,
+            ) { run(onTogglePreview) }
+            MenuActionRow(Icons.Filled.TouchApp, "Virtual trackpad", palette, checked = trackpadActive) { run(onToggleTrackpad) }
+            MenuActionRow(Icons.Filled.DesktopWindows, layoutMode.toggleLabel, palette) { run(onToggleLayoutMode) }
+            MenuActionRow(Icons.AutoMirrored.Filled.WrapText, "Word wrap", palette, checked = displayOptions.wordWrap) { run(onToggleWordWrap) }
+            MenuActionRow(Icons.Filled.FormatListNumbered, "Line numbers", palette, checked = displayOptions.lineNumbers) { run(onToggleLineNumbers) }
+            MenuActionRow(Icons.Filled.Keyboard, "Keyboard toolbar", palette, checked = displayOptions.accessoryBar) { run(onToggleAccessoryBar) }
+            MenuFontRow(displayOptions.fontSizeSp, palette, onFontSizeDown, onFontSizeUp)
+
+            MenuSectionHeader("Tools", palette)
+            MenuActionRow(Icons.Filled.Settings, "Preferences", palette, subtitle = "Editor settings are in this sheet", enabled = false) {}
+            MenuActionRow(Icons.Filled.Code, "Change language", palette) { run(onChangeLanguage) }
+            MenuActionRow(Icons.Filled.Palette, "Theme quick toggle", palette) { run(onCycleTheme) }
+
+            MenuSectionHeader("Help", palette)
+            MenuActionRow(Icons.Filled.Info, "About Notepad 3++", palette) { run(onShowAbout) }
+        }
+    }
+}
+
+@Composable
+private fun MenuSectionHeader(text: String, palette: Palette) {
+    Text(
+        text = text.uppercase(Locale.ROOT),
+        color = palette.mutedForeground.toColor(),
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.muted.toColor().copy(alpha = 0.55f))
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    )
+}
+
+@Composable
+private fun MenuActionRow(
+    icon: ImageVector,
+    title: String,
+    palette: Palette,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    checked: Boolean = false,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val color = when {
+        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.50f)
+        destructive -> palette.destructive.toColor()
+        else -> palette.foreground.toColor()
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(21.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = color,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    color = palette.mutedForeground.toColor(),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
+        if (checked) {
+            Icon(Icons.Filled.Check, contentDescription = null, tint = palette.primary.toColor(), modifier = Modifier.size(19.dp))
+        }
+    }
+}
+
+@Composable
+private fun MenuFontRow(
+    fontSizeSp: Int,
+    palette: Palette,
+    onFontSizeDown: () -> Unit,
+    onFontSizeUp: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.FormatSize, contentDescription = null, tint = palette.foreground.toColor(), modifier = Modifier.size(21.dp))
+        Text(
+            text = "Font size",
+            color = palette.foreground.toColor(),
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
+            modifier = Modifier.weight(1f),
+        )
+        CommandButton(text = "-", palette = palette, modifier = Modifier.size(width = 44.dp, height = 30.dp), onClick = onFontSizeDown)
+        Text(
+            text = "$fontSizeSp sp",
+            color = palette.mutedForeground.toColor(),
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+        )
+        CommandButton(text = "+", palette = palette, modifier = Modifier.size(width = 44.dp, height = 30.dp), onClick = onFontSizeUp)
     }
 }
 
@@ -2320,7 +2720,10 @@ private fun EditorTextArea(
             .border(1.dp, palette.border.toColor(), RoundedCornerShape(palette.radius.dp)),
         factory = { context ->
             EditorEditText(context).apply {
-                setOnFocusChangeListener { _, hasFocus -> latestOnFocusChange.value(hasFocus) }
+                setOnFocusChangeListener { view, hasFocus ->
+                    latestOnFocusChange.value(hasFocus)
+                    if (hasFocus && !readOnly) (view as? EditText)?.showSoftKeyboard()
+                }
                 selectionChangedCallback = { latestOnSelectionChange.value(it) }
                 gravity = Gravity.TOP or Gravity.START
                 isSingleLine = false
@@ -2362,7 +2765,10 @@ private fun EditorTextArea(
             }
         },
         update = { editText ->
-            editText.setOnFocusChangeListener { _, hasFocus -> latestOnFocusChange.value(hasFocus) }
+            editText.setOnFocusChangeListener { view, hasFocus ->
+                latestOnFocusChange.value(hasFocus)
+                if (hasFocus && !readOnly) (view as? EditText)?.showSoftKeyboard()
+            }
             editText.selectionChangedCallback = { latestOnSelectionChange.value(it) }
             val safeSelection = selection.clamped(document.body.length)
             val bodyChangedExternally = editText.text.toString() != document.body
@@ -2372,6 +2778,9 @@ private fun EditorTextArea(
                 editText.keyListener = null
             } else if (editText.keyListener == null) {
                 editText.keyListener = editText.editableKeyListener
+            }
+            if (!readOnly && editText.isFocused) {
+                editText.showSoftKeyboard()
             }
             editText.setTextColor(palette.foreground.toColor().toArgb())
             editText.setBackgroundColor(palette.editorBackground.toColor().toArgb())
@@ -2433,7 +2842,7 @@ private fun MobileBottomBar(
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MobileNavButton(icon = Icons.AutoMirrored.Filled.List, label = "Docs", palette = palette, modifier = Modifier.weight(1f), onClick = onOpen)
+        MobileNavButton(icon = Icons.Filled.FolderOpen, label = "File", palette = palette, modifier = Modifier.weight(1f), onClick = onOpen)
         MobileNavButton(icon = Icons.Filled.Search, label = "Find", palette = palette, active = findActive, modifier = Modifier.weight(1f), onClick = onFind)
         MobileNavButton(
             icon = Icons.Filled.ViewColumn,
@@ -2450,6 +2859,51 @@ private fun MobileBottomBar(
 }
 
 @Composable
+private fun TrackpadPanel(
+    palette: Palette,
+    onMoveLeft: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onMoveRight: () -> Unit,
+    onHide: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = palette.card.toColor(),
+        border = BorderStroke(1.dp, palette.primary.toColor()),
+        shape = RoundedCornerShape(palette.radius.dp),
+        modifier = modifier.widthIn(min = 220.dp, max = 280.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Trackpad",
+                    color = palette.foreground.toColor(),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onHide, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Hide trackpad", tint = palette.foreground.toColor())
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                Spacer(Modifier.weight(1f))
+                CommandButton(text = "^", palette = palette, modifier = Modifier.weight(1f), onClick = onMoveUp)
+                Spacer(Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                CommandButton(text = "<", palette = palette, modifier = Modifier.weight(1f), onClick = onMoveLeft)
+                CommandButton(text = "v", palette = palette, modifier = Modifier.weight(1f), onClick = onMoveDown)
+                CommandButton(text = ">", palette = palette, modifier = Modifier.weight(1f), onClick = onMoveRight)
+            }
+        }
+    }
+}
+
+@Composable
 private fun MobileKeyboardAccessory(
     palette: Palette,
     canUndo: Boolean,
@@ -2457,14 +2911,18 @@ private fun MobileKeyboardAccessory(
     canCut: Boolean,
     canPaste: Boolean,
     readOnly: Boolean,
+    shiftActive: Boolean,
     findActive: Boolean,
     compareActive: Boolean,
     onHideKeyboard: () -> Unit,
+    onReadToggle: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onCut: () -> Unit,
     onCopy: () -> Unit,
     onPaste: () -> Unit,
+    onShiftToggle: () -> Unit,
+    onDeleteBackward: () -> Unit,
     onMoveLeft: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -2472,58 +2930,154 @@ private fun MobileKeyboardAccessory(
     onFind: () -> Unit,
     onReplace: () -> Unit,
     onInsertDateTime: () -> Unit,
+    onOpenDocuments: () -> Unit,
+    onSelectAll: () -> Unit,
     onSelectWord: () -> Unit,
     onSelectLine: () -> Unit,
     onCompare: () -> Unit,
     onMore: () -> Unit,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(92.dp)
             .background(palette.card.toColor())
             .border(1.dp, palette.border.toColor())
             .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AccessoryStaticCluster(
+            palette = palette,
+            shiftActive = shiftActive,
+            readOnly = readOnly,
+            onShiftToggle = onShiftToggle,
+            onMoveUp = onMoveUp,
+            onDeleteBackward = onDeleteBackward,
+            onMoveLeft = onMoveLeft,
+            onMoveDown = onMoveDown,
+            onMoveRight = onMoveRight,
+        )
+        Spacer(
+            Modifier
+                .fillMaxHeight()
+                .width(1.dp)
+                .background(palette.border.toColor()),
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                AccessoryButton(Icons.Filled.KeyboardArrowDown, "Hide", palette, active = true, onClick = onHideKeyboard)
+                AccessoryDivider(palette)
+                AccessoryButton(Icons.Filled.ContentCut, "Cut", palette, enabled = canCut, onClick = onCut)
+                AccessoryButton(Icons.Filled.ContentCopy, "Copy", palette, onClick = onCopy)
+                AccessoryButton(Icons.Filled.ContentPaste, "Paste", palette, enabled = canPaste && !readOnly, onClick = onPaste)
+                AccessoryDivider(palette)
+                AccessoryButton(Icons.AutoMirrored.Filled.ShortText, "Word", palette, onClick = onSelectWord)
+                AccessoryButton(Icons.AutoMirrored.Filled.Subject, "Line", palette, onClick = onSelectLine)
+                AccessoryButton(Icons.Filled.SelectAll, "All", palette, onClick = onSelectAll)
+            }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                AccessoryButton(Icons.AutoMirrored.Filled.Undo, "Undo", palette, enabled = canUndo, onClick = onUndo)
+                AccessoryButton(Icons.AutoMirrored.Filled.Redo, "Redo", palette, enabled = canRedo, onClick = onRedo)
+                AccessoryDivider(palette)
+                AccessoryButton(if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, "Read", palette, active = readOnly, onClick = onReadToggle)
+                AccessoryButton(Icons.Filled.Search, "Find", palette, active = findActive, onClick = onFind)
+                AccessoryButton(Icons.Filled.FindReplace, "Replace", palette, onClick = onReplace)
+                AccessoryDivider(palette)
+                AccessoryButton(Icons.Filled.AccessTime, "Date", palette, enabled = !readOnly, onClick = onInsertDateTime)
+                AccessoryButton(Icons.Filled.FolderOpen, "Open", palette, onClick = onOpenDocuments)
+                AccessoryButton(Icons.Filled.ViewColumn, "Compare", palette, active = compareActive, onClick = onCompare)
+                AccessoryButton(Icons.Filled.MoreHoriz, "More", palette, onClick = onMore)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccessoryStaticCluster(
+    palette: Palette,
+    shiftActive: Boolean,
+    readOnly: Boolean,
+    onShiftToggle: () -> Unit,
+    onMoveUp: () -> Unit,
+    onDeleteBackward: () -> Unit,
+    onMoveLeft: () -> Unit,
+    onMoveDown: () -> Unit,
+    onMoveRight: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(140.dp)
+            .fillMaxHeight()
+            .padding(horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .weight(1f)
+                .fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            AccessoryButton(Icons.Filled.KeyboardArrowDown, "Hide", palette, onClick = onHideKeyboard)
-            AccessoryDivider(palette)
-            AccessoryButton(Icons.AutoMirrored.Filled.Undo, "Undo", palette, enabled = canUndo, onClick = onUndo)
-            AccessoryButton(Icons.AutoMirrored.Filled.Redo, "Redo", palette, enabled = canRedo, onClick = onRedo)
-            AccessoryDivider(palette)
-            AccessoryButton(Icons.Filled.ContentCut, "Cut", palette, enabled = canCut, onClick = onCut)
-            AccessoryButton(Icons.Filled.ContentCopy, "Copy", palette, onClick = onCopy)
-            AccessoryButton(Icons.Filled.ContentPaste, "Paste", palette, enabled = canPaste && !readOnly, onClick = onPaste)
-            AccessoryDivider(palette)
-            AccessoryButton(Icons.AutoMirrored.Filled.ShortText, "Word", palette, onClick = onSelectWord)
-            AccessoryButton(Icons.AutoMirrored.Filled.Subject, "Line", palette, onClick = onSelectLine)
+            AccessoryClusterButton(Icons.Filled.KeyboardCapslock, "Shift", palette, active = shiftActive, modifier = Modifier.weight(1f), onClick = onShiftToggle)
+            AccessoryClusterButton(Icons.Filled.KeyboardArrowUp, "Up", palette, modifier = Modifier.weight(1f), onClick = onMoveUp)
+            AccessoryClusterButton(Icons.AutoMirrored.Filled.Backspace, "Delete", palette, enabled = !readOnly, modifier = Modifier.weight(1f), onClick = onDeleteBackward)
         }
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .weight(1f)
+                .fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            AccessoryButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", palette, showLabel = false, onClick = onMoveLeft)
-            AccessoryButton(Icons.Filled.KeyboardArrowUp, "Up", palette, showLabel = false, onClick = onMoveUp)
-            AccessoryButton(Icons.Filled.KeyboardArrowDown, "Down", palette, showLabel = false, onClick = onMoveDown)
-            AccessoryButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", palette, showLabel = false, onClick = onMoveRight)
-            AccessoryDivider(palette)
-            AccessoryButton(Icons.Filled.Search, "Find", palette, active = findActive, onClick = onFind)
-            AccessoryButton(Icons.Filled.FindReplace, "Replace", palette, onClick = onReplace)
-            AccessoryButton(Icons.Filled.AccessTime, "Date", palette, enabled = !readOnly, onClick = onInsertDateTime)
-            AccessoryButton(Icons.Filled.ViewColumn, "Compare", palette, active = compareActive, onClick = onCompare)
-            AccessoryButton(Icons.Filled.MoreHoriz, "More", palette, onClick = onMore)
+            AccessoryClusterButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", palette, modifier = Modifier.weight(1f), onClick = onMoveLeft)
+            AccessoryClusterButton(Icons.Filled.KeyboardArrowDown, "Down", palette, modifier = Modifier.weight(1f), onClick = onMoveDown)
+            AccessoryClusterButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", palette, modifier = Modifier.weight(1f), onClick = onMoveRight)
         }
+    }
+}
+
+@Composable
+private fun AccessoryClusterButton(
+    icon: ImageVector,
+    label: String,
+    palette: Palette,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val color = when {
+        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.42f)
+        active -> palette.primary.toColor()
+        else -> palette.foreground.toColor()
+    }
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .background(if (active) palette.muted.toColor() else Color.Transparent, RoundedCornerShape(3.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -2679,6 +3233,13 @@ private fun Context.hideSoftKeyboard() {
     val view = activity.currentFocus ?: activity.window.decorView
     val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
     imm.hideSoftInputFromWindow(view.windowToken, 0)
+}
+
+private fun EditText.showSoftKeyboard() {
+    post {
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return@post
+        imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+    }
 }
 
 private fun maxOfSelection(first: TextSelection, second: TextSelection?): TextSelection {

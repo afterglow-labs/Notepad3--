@@ -126,6 +126,19 @@ object EditorCommands {
         return EditResult(next, TextSelection(lineStart.coerceIn(0, next.length)))
     }
 
+    fun deleteBackward(body: String, selection: TextSelection): EditResult {
+        val safeSelection = selection.clamped(body.length)
+        if (safeSelection.min != safeSelection.max) {
+            val next = body.removeRange(safeSelection.min, safeSelection.max)
+            return EditResult(next, TextSelection(safeSelection.min))
+        }
+        if (safeSelection.min == 0) return EditResult(body, safeSelection)
+
+        val nextCaret = safeSelection.min - 1
+        val next = body.removeRange(nextCaret, safeSelection.min)
+        return EditResult(next, TextSelection(nextCaret))
+    }
+
     fun insertText(body: String, selection: TextSelection, value: String): EditResult {
         val safeSelection = selection.clamped(body.length)
         val next = body.replaceRange(safeSelection.min, safeSelection.max, value)
