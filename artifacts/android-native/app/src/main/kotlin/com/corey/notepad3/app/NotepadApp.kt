@@ -24,6 +24,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +61,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -101,6 +104,7 @@ import com.corey.notepad3.theme.Palette
 import com.corey.notepad3.theme.ThemeController
 import com.corey.notepad3.theme.ThemeName
 import com.corey.notepad3.theme.ThemePreference
+import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -146,6 +150,7 @@ fun NotepadApp(
     var showCompare by rememberSaveable { mutableStateOf(false) }
     var compareTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var showMore by rememberSaveable { mutableStateOf(false) }
+    var showPreferences by rememberSaveable { mutableStateOf(false) }
     var showTrackpad by rememberSaveable { mutableStateOf(false) }
     var shiftAnchor by rememberSaveable { mutableStateOf<Int?>(null) }
     var readMode by rememberSaveable { mutableStateOf(false) }
@@ -223,6 +228,11 @@ fun NotepadApp(
 
     fun toggleMorePanel() {
         showMore = !showMore
+    }
+
+    fun openPreferencesPanel() {
+        showPreferences = true
+        showMore = false
     }
 
     fun toggleLayoutMode() {
@@ -417,6 +427,15 @@ fun NotepadApp(
         showMore = false
     }
 
+    fun setDocumentLanguage(language: DocumentLanguage) {
+        store.updateActive(language = language)
+        showLanguage = false
+        showMore = false
+        if (language != DocumentLanguage.MARKDOWN) {
+            previewMode = false
+        }
+    }
+
     if (zenMode) {
         BackHandler {
             zenMode = false
@@ -441,6 +460,8 @@ fun NotepadApp(
                         palette = palette,
                         layoutMode = layoutMode,
                         activeTheme = resolvedTheme,
+                        activeLanguage = active.language,
+                        displayOptions = displayOptions,
                         compareEnabled = snapshot.documents.size > 1,
                         compareActive = showCompare,
                         canUndo = canUndo,
@@ -450,6 +471,7 @@ fun NotepadApp(
                         previewEnabled = active.language == DocumentLanguage.MARKDOWN,
                         previewActive = showingMarkdownPreview,
                         trackpadActive = showTrackpad,
+                        commentEnabled = active.language.lineCommentPrefix != null,
                         onCycleTheme = ::cycleTheme,
                         onThemeSelect = ::setTheme,
                         onOpenDocuments = ::toggleDocumentsPanel,
@@ -459,6 +481,11 @@ fun NotepadApp(
                         onReplace = ::openReplacePanel,
                         onCompare = ::toggleComparePanel,
                         onMore = ::toggleMorePanel,
+                        onPreferences = ::openPreferencesPanel,
+                        onShowAbout = ::showAboutPanel,
+                        onToggleWordWrap = editorPreferenceController::toggleWordWrap,
+                        onToggleLineNumbers = editorPreferenceController::toggleLineNumbers,
+                        onToggleAccessoryBar = editorPreferenceController::toggleAccessoryBar,
                         onNew = store::createBlank,
                         onDuplicateDocument = store::duplicateActive,
                         onCloseDocument = { store.close(active.id) },
@@ -473,6 +500,7 @@ fun NotepadApp(
                             showLanguage = true
                             showMore = false
                         },
+                        onLanguageSelect = ::setDocumentLanguage,
                         onSelectAll = ::selectAllText,
                         onSelectWord = ::selectWord,
                         onSelectLine = ::selectLine,
@@ -483,6 +511,41 @@ fun NotepadApp(
                         onTrim = ::trimSelection,
                         onSort = ::sortDocument,
                         onRenameDocument = ::startRenameDocument,
+                        onUppercase = {
+                            commitEdit(EditorCommands.uppercaseSelection(active.body, activeSelection))
+                        },
+                        onLowercase = {
+                            commitEdit(EditorCommands.lowercaseSelection(active.body, activeSelection))
+                        },
+                        onIndent = {
+                            commitEdit(EditorCommands.indentSelection(active.body, activeSelection))
+                        },
+                        onUnindent = {
+                            commitEdit(EditorCommands.unindentSelection(active.body, activeSelection))
+                        },
+                        onToggleComment = {
+                            active.language.lineCommentPrefix?.let { prefix ->
+                                commitEdit(EditorCommands.toggleLineComment(active.body, activeSelection, prefix))
+                            }
+                        },
+                        onMoveLineUp = {
+                            commitEdit(EditorCommands.moveCurrentLineUp(active.body, activeSelection.min))
+                        },
+                        onMoveLineDown = {
+                            commitEdit(EditorCommands.moveCurrentLineDown(active.body, activeSelection.min))
+                        },
+                        onTrimLeading = {
+                            commitEdit(EditorCommands.trimLeadingSpaces(active.body, activeSelection))
+                        },
+                        onJoinLines = {
+                            commitEdit(EditorCommands.joinSelectedLines(active.body, activeSelection))
+                        },
+                        onReverseLines = {
+                            commitEdit(EditorCommands.reverseLines(active.body))
+                        },
+                        onRemoveDuplicateLines = {
+                            commitEdit(EditorCommands.removeDuplicateLines(active.body))
+                        },
                         onTogglePreview = ::togglePreviewMode,
                         onToggleTrackpad = ::toggleTrackpad,
                         onToggleReadMode = ::toggleReadMode,
@@ -578,8 +641,7 @@ fun NotepadApp(
                             current = active.language,
                             palette = palette,
                             onSelect = {
-                                store.updateActive(language = it)
-                                showLanguage = false
+                                setDocumentLanguage(it)
                             },
                             onCancel = { showLanguage = false },
                         )
@@ -687,44 +749,45 @@ fun NotepadApp(
                     Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
                     StatusBar(document = active, selection = activeSelection, readOnly = readMode, palette = palette)
                     Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
+                    if (displayOptions.accessoryBar) {
+                        MobileKeyboardAccessory(
+                            palette = palette,
+                            displayOptions = displayOptions,
+                            canUndo = canUndo,
+                            canRedo = canRedo,
+                            canCut = activeSelection.min != activeSelection.max && !readMode,
+                            canPaste = !readMode,
+                            readOnly = readMode,
+                            shiftActive = shiftAnchor != null,
+                            keyboardSuppressed = keyboardSuppressed,
+                            findActive = showFind,
+                            compareActive = showCompare,
+                            onToggleKeyboardSuppression = ::toggleKeyboardSuppression,
+                            onReadToggle = ::toggleReadMode,
+                            onUndo = ::undoEdit,
+                            onRedo = ::redoEdit,
+                            onCut = ::cutSelection,
+                            onCopy = ::copySelection,
+                            onPaste = ::pasteFromClipboard,
+                            onShiftToggle = ::toggleShiftSelection,
+                            onDeleteBackward = ::deleteBackward,
+                            onMoveLeft = { moveCursorBy(-1) },
+                            onMoveUp = { moveCursorVertical(-1) },
+                            onMoveDown = { moveCursorVertical(1) },
+                            onMoveRight = { moveCursorBy(1) },
+                            onFind = ::toggleFindPanel,
+                            onReplace = ::openReplacePanel,
+                            onInsertDateTime = ::insertDateTime,
+                            onOpenDocuments = ::toggleDocumentsPanel,
+                            onSelectAll = ::selectAllText,
+                            onSelectWord = ::selectWord,
+                            onSelectLine = ::selectLine,
+                            onCompare = ::toggleComparePanel,
+                            onMore = ::toggleMorePanel,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                    }
                     if (layoutMode == EditorLayoutMode.MOBILE) {
-                        if (displayOptions.accessoryBar) {
-                            MobileKeyboardAccessory(
-                                palette = palette,
-                                canUndo = canUndo,
-                                canRedo = canRedo,
-                                canCut = activeSelection.min != activeSelection.max && !readMode,
-                                canPaste = !readMode,
-                                readOnly = readMode,
-                                shiftActive = shiftAnchor != null,
-                                keyboardSuppressed = keyboardSuppressed,
-                                findActive = showFind,
-                                compareActive = showCompare,
-                                onToggleKeyboardSuppression = ::toggleKeyboardSuppression,
-                                onReadToggle = ::toggleReadMode,
-                                onUndo = ::undoEdit,
-                                onRedo = ::redoEdit,
-                                onCut = ::cutSelection,
-                                onCopy = ::copySelection,
-                                onPaste = ::pasteFromClipboard,
-                                onShiftToggle = ::toggleShiftSelection,
-                                onDeleteBackward = ::deleteBackward,
-                                onMoveLeft = { moveCursorBy(-1) },
-                                onMoveUp = { moveCursorVertical(-1) },
-                                onMoveDown = { moveCursorVertical(1) },
-                                onMoveRight = { moveCursorBy(1) },
-                                onFind = ::toggleFindPanel,
-                                onReplace = ::openReplacePanel,
-                                onInsertDateTime = ::insertDateTime,
-                                onOpenDocuments = ::toggleDocumentsPanel,
-                                onSelectAll = ::selectAllText,
-                                onSelectWord = ::selectWord,
-                                onSelectLine = ::selectLine,
-                                onCompare = ::toggleComparePanel,
-                                onMore = ::toggleMorePanel,
-                            )
-                            Spacer(Modifier.height(2.dp))
-                        }
                         MobileBottomBar(
                             palette = palette,
                             compareEnabled = snapshot.documents.size > 1,
@@ -869,10 +932,33 @@ fun NotepadApp(
                                 showMore = false
                             },
                             onCycleTheme = ::cycleTheme,
+                            onPreferences = ::openPreferencesPanel,
                             onShowAbout = ::showAboutPanel,
                             modifier = Modifier.padding(8.dp),
                         )
                     }
+                }
+                if (showPreferences) {
+                    PreferencesPage(
+                        palette = palette,
+                        activeTheme = resolvedTheme,
+                        layoutMode = layoutMode,
+                        displayOptions = displayOptions,
+                        onDismiss = { showPreferences = false },
+                        onThemeSelect = ::setTheme,
+                        onSetLayoutMode = editorPreferenceController::setLayoutMode,
+                        onToggleWordWrap = editorPreferenceController::toggleWordWrap,
+                        onToggleLineNumbers = editorPreferenceController::toggleLineNumbers,
+                        onToggleAccessoryBar = editorPreferenceController::toggleAccessoryBar,
+                        onToolbarRowsDown = { editorPreferenceController.adjustToolbarRows(-1) },
+                        onToolbarRowsUp = { editorPreferenceController.adjustToolbarRows(1) },
+                        onToolbarButtonSizeSelect = editorPreferenceController::setToolbarButtonSize,
+                        onToolbarContentModeSelect = editorPreferenceController::setToolbarContentMode,
+                        onToggleStaticAccessoryButton = editorPreferenceController::toggleStaticAccessoryButton,
+                        onToggleHiddenAccessoryButton = editorPreferenceController::toggleHiddenAccessoryButton,
+                        onFontSizeDown = { editorPreferenceController.adjustFontSize(-1) },
+                        onFontSizeUp = { editorPreferenceController.adjustFontSize(1) },
+                    )
                 }
             }
         }
@@ -884,6 +970,8 @@ private fun WindowBar(
     palette: Palette,
     layoutMode: EditorLayoutMode,
     activeTheme: ThemeName,
+    activeLanguage: DocumentLanguage,
+    displayOptions: EditorDisplayOptions,
     compareEnabled: Boolean,
     compareActive: Boolean,
     canUndo: Boolean,
@@ -893,6 +981,7 @@ private fun WindowBar(
     previewEnabled: Boolean,
     previewActive: Boolean,
     trackpadActive: Boolean,
+    commentEnabled: Boolean,
     onCycleTheme: () -> Unit,
     onThemeSelect: (ThemeName) -> Unit,
     onOpenDocuments: () -> Unit,
@@ -902,6 +991,11 @@ private fun WindowBar(
     onReplace: () -> Unit,
     onCompare: () -> Unit,
     onMore: () -> Unit,
+    onPreferences: () -> Unit,
+    onShowAbout: () -> Unit,
+    onToggleWordWrap: () -> Unit,
+    onToggleLineNumbers: () -> Unit,
+    onToggleAccessoryBar: () -> Unit,
     onNew: () -> Unit,
     onDuplicateDocument: () -> Unit,
     onCloseDocument: () -> Unit,
@@ -913,6 +1007,7 @@ private fun WindowBar(
     onPaste: () -> Unit,
     onGotoLine: () -> Unit,
     onChangeLanguage: () -> Unit,
+    onLanguageSelect: (DocumentLanguage) -> Unit,
     onSelectAll: () -> Unit,
     onSelectWord: () -> Unit,
     onSelectLine: () -> Unit,
@@ -923,6 +1018,17 @@ private fun WindowBar(
     onTrim: () -> Unit,
     onSort: () -> Unit,
     onRenameDocument: () -> Unit,
+    onUppercase: () -> Unit,
+    onLowercase: () -> Unit,
+    onIndent: () -> Unit,
+    onUnindent: () -> Unit,
+    onToggleComment: () -> Unit,
+    onMoveLineUp: () -> Unit,
+    onMoveLineDown: () -> Unit,
+    onTrimLeading: () -> Unit,
+    onJoinLines: () -> Unit,
+    onReverseLines: () -> Unit,
+    onRemoveDuplicateLines: () -> Unit,
     onTogglePreview: () -> Unit,
     onToggleTrackpad: () -> Unit,
     onToggleReadMode: () -> Unit,
@@ -937,15 +1043,24 @@ private fun WindowBar(
             ClassicMenuBar(
                 palette = palette,
                 activeTheme = activeTheme,
+                activeLanguage = activeLanguage,
+                displayOptions = displayOptions,
                 compareEnabled = compareEnabled,
                 compareActive = compareActive,
+                canUndo = canUndo,
+                canRedo = canRedo,
                 readOnly = readOnly,
                 zenMode = zenMode,
+                previewEnabled = previewEnabled,
+                previewActive = previewActive,
+                trackpadActive = trackpadActive,
+                commentEnabled = commentEnabled,
                 onNew = onNew,
                 onOpenFile = onOpenFile,
                 onSave = onSave,
                 onOpenDocuments = onOpenDocuments,
                 onDuplicateDocument = onDuplicateDocument,
+                onRenameDocument = onRenameDocument,
                 onCloseDocument = onCloseDocument,
                 onCloseOthers = onCloseOthers,
                 onUndo = onUndo,
@@ -965,9 +1080,28 @@ private fun WindowBar(
                 onDeleteLine = onDeleteLine,
                 onTrim = onTrim,
                 onSort = onSort,
+                onUppercase = onUppercase,
+                onLowercase = onLowercase,
+                onIndent = onIndent,
+                onUnindent = onUnindent,
+                onToggleComment = onToggleComment,
+                onMoveLineUp = onMoveLineUp,
+                onMoveLineDown = onMoveLineDown,
+                onTrimLeading = onTrimLeading,
+                onJoinLines = onJoinLines,
+                onReverseLines = onReverseLines,
+                onRemoveDuplicateLines = onRemoveDuplicateLines,
                 onCompare = onCompare,
-                onMore = onMore,
+                onPreferences = onPreferences,
+                onShowAbout = onShowAbout,
                 onThemeSelect = onThemeSelect,
+                onCycleTheme = onCycleTheme,
+                onLanguageSelect = onLanguageSelect,
+                onTogglePreview = onTogglePreview,
+                onToggleTrackpad = onToggleTrackpad,
+                onToggleWordWrap = onToggleWordWrap,
+                onToggleLineNumbers = onToggleLineNumbers,
+                onToggleAccessoryBar = onToggleAccessoryBar,
                 onToggleReadMode = onToggleReadMode,
                 onToggleZenMode = onToggleZenMode,
                 onSwitchToMobile = onSwitchToMobile,
@@ -991,6 +1125,7 @@ private fun WindowBar(
                 onReplace = onReplace,
                 onCompare = onCompare,
                 onMore = onMore,
+                onPreferences = onPreferences,
                 onCycleTheme = onCycleTheme,
                 onUndo = onUndo,
                 onRedo = onRedo,
@@ -1014,6 +1149,7 @@ private fun WindowBar(
                 onFind = onFind,
                 onCycleTheme = onCycleTheme,
                 onMore = onMore,
+                onPreferences = onPreferences,
                 compareEnabled = compareEnabled,
                 readOnly = readOnly,
                 zenMode = zenMode,
@@ -1049,6 +1185,7 @@ private fun MobileTitleBar(
     onFind: () -> Unit,
     onCycleTheme: () -> Unit,
     onMore: () -> Unit,
+    onPreferences: () -> Unit,
     compareEnabled: Boolean,
     readOnly: Boolean,
     zenMode: Boolean,
@@ -1115,7 +1252,7 @@ private fun MobileTitleBar(
                     .border(1.dp, palette.border.toColor()),
             ) {
                 ClassicDropdownMenuHeader("Quick actions", palette)
-                ClassicDropdownMenuItem("Preferences...", Icons.Filled.Settings, palette) { runQuick(onMore) }
+                ClassicDropdownMenuItem("Preferences...", Icons.Filled.Settings, palette) { runQuick(onPreferences) }
                 ClassicDropdownMenuItem("Compare documents", Icons.Filled.ViewColumn, palette, enabled = compareEnabled) { runQuick(onCompare) }
                 ClassicDropdownMenuItem("Change language", Icons.Filled.Code, palette) { runQuick(onChangeLanguage) }
                 ClassicDropdownMenuItem("Go to line...", Icons.AutoMirrored.Filled.KeyboardTab, palette) { runQuick(onGotoLine) }
@@ -1262,15 +1399,24 @@ private fun ClassicMiniIconButton(
 private fun ClassicMenuBar(
     palette: Palette,
     activeTheme: ThemeName,
+    activeLanguage: DocumentLanguage,
+    displayOptions: EditorDisplayOptions,
     compareEnabled: Boolean,
     compareActive: Boolean,
+    canUndo: Boolean,
+    canRedo: Boolean,
     readOnly: Boolean,
     zenMode: Boolean,
+    previewEnabled: Boolean,
+    previewActive: Boolean,
+    trackpadActive: Boolean,
+    commentEnabled: Boolean,
     onNew: () -> Unit,
     onOpenFile: () -> Unit,
     onSave: () -> Unit,
     onOpenDocuments: () -> Unit,
     onDuplicateDocument: () -> Unit,
+    onRenameDocument: () -> Unit,
     onCloseDocument: () -> Unit,
     onCloseOthers: () -> Unit,
     onUndo: () -> Unit,
@@ -1290,9 +1436,28 @@ private fun ClassicMenuBar(
     onDeleteLine: () -> Unit,
     onTrim: () -> Unit,
     onSort: () -> Unit,
+    onUppercase: () -> Unit,
+    onLowercase: () -> Unit,
+    onIndent: () -> Unit,
+    onUnindent: () -> Unit,
+    onToggleComment: () -> Unit,
+    onMoveLineUp: () -> Unit,
+    onMoveLineDown: () -> Unit,
+    onTrimLeading: () -> Unit,
+    onJoinLines: () -> Unit,
+    onReverseLines: () -> Unit,
+    onRemoveDuplicateLines: () -> Unit,
     onCompare: () -> Unit,
-    onMore: () -> Unit,
+    onPreferences: () -> Unit,
+    onShowAbout: () -> Unit,
     onThemeSelect: (ThemeName) -> Unit,
+    onCycleTheme: () -> Unit,
+    onLanguageSelect: (DocumentLanguage) -> Unit,
+    onTogglePreview: () -> Unit,
+    onToggleTrackpad: () -> Unit,
+    onToggleWordWrap: () -> Unit,
+    onToggleLineNumbers: () -> Unit,
+    onToggleAccessoryBar: () -> Unit,
     onToggleReadMode: () -> Unit,
     onToggleZenMode: () -> Unit,
     onSwitchToMobile: () -> Unit,
@@ -1351,6 +1516,11 @@ private fun ClassicMenuBar(
                 Icons.Filled.ContentCopy,
                 palette,
             ) { runMenuAction(onDuplicateDocument) }
+            ClassicDropdownMenuItem(
+                "Rename...",
+                Icons.Filled.Edit,
+                palette,
+            ) { runMenuAction(onRenameDocument) }
             ClassicDropdownSeparator(palette)
             ClassicDropdownMenuItem(
                 "Close",
@@ -1374,11 +1544,13 @@ private fun ClassicMenuBar(
                 "Undo",
                 Icons.AutoMirrored.Filled.Undo,
                 palette,
+                enabled = canUndo,
             ) { runMenuAction(onUndo) }
             ClassicDropdownMenuItem(
                 "Redo",
                 Icons.AutoMirrored.Filled.Redo,
                 palette,
+                enabled = canRedo,
             ) { runMenuAction(onRedo) }
             ClassicDropdownSeparator(palette)
             ClassicDropdownMenuItem(
@@ -1408,23 +1580,27 @@ private fun ClassicMenuBar(
             ClassicDropdownMenuItem("Select line", Icons.AutoMirrored.Filled.Subject, palette) { runMenuAction(onSelectLine) }
             ClassicDropdownMenuItem("Select paragraph", Icons.Filled.FormatAlignJustify, palette) { runMenuAction(onSelectParagraph) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuItem(
-                "Find",
-                Icons.Filled.Search,
-                palette,
-            ) { runMenuAction(onFind) }
-            ClassicDropdownMenuItem(
-                "Replace",
-                Icons.Filled.FindReplace,
-                palette,
-            ) { runMenuAction(onReplace) }
-            ClassicDropdownMenuItem("Goto line...", Icons.AutoMirrored.Filled.KeyboardTab, palette) { runMenuAction(onGotoLine) }
+            ClassicDropdownMenuHeader("Text transform", palette)
+            ClassicDropdownMenuItem("Uppercase selection", Icons.Filled.FormatSize, palette, enabled = !readOnly) { runMenuAction(onUppercase) }
+            ClassicDropdownMenuItem("Lowercase selection", Icons.Filled.TextFields, palette, enabled = !readOnly) { runMenuAction(onLowercase) }
+            ClassicDropdownMenuItem("Indent", Icons.AutoMirrored.Filled.FormatIndentIncrease, palette, enabled = !readOnly) { runMenuAction(onIndent) }
+            ClassicDropdownMenuItem("Unindent", Icons.AutoMirrored.Filled.FormatIndentDecrease, palette, enabled = !readOnly) { runMenuAction(onUnindent) }
+            ClassicDropdownMenuItem("Toggle comment", Icons.Filled.Code, palette, enabled = !readOnly && commentEnabled) { runMenuAction(onToggleComment) }
             ClassicDropdownSeparator(palette)
             ClassicDropdownMenuItem("Insert date/time", Icons.Filled.AccessTime, palette, enabled = !readOnly) { runMenuAction(onInsertDateTime) }
-            ClassicDropdownMenuItem("Duplicate line", Icons.Filled.AddBox, palette, enabled = !readOnly) { runMenuAction(onDuplicateLine) }
-            ClassicDropdownMenuItem("Delete line", Icons.Filled.IndeterminateCheckBox, palette, enabled = !readOnly, destructive = true) { runMenuAction(onDeleteLine) }
-            ClassicDropdownMenuItem("Sort lines", Icons.Filled.SortByAlpha, palette, enabled = !readOnly) { runMenuAction(onSort) }
-            ClassicDropdownMenuItem("Trim trailing spaces", Icons.AutoMirrored.Filled.FormatAlignLeft, palette, enabled = !readOnly) { runMenuAction(onTrim) }
+        }
+        ClassicMenuButton(
+            text = "Search",
+            menu = ClassicMenu.SEARCH,
+            openMenu = openMenu,
+            palette = palette,
+            onOpen = { openMenu = it },
+        ) {
+            ClassicDropdownMenuItem("Find", Icons.Filled.Search, palette) { runMenuAction(onFind) }
+            ClassicDropdownMenuItem("Replace", Icons.Filled.FindReplace, palette) { runMenuAction(onReplace) }
+            ClassicDropdownMenuItem("Goto line...", Icons.AutoMirrored.Filled.KeyboardTab, palette) { runMenuAction(onGotoLine) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Compare documents", Icons.Filled.ViewColumn, palette, enabled = compareEnabled, checked = compareActive) { runMenuAction(onCompare) }
         }
         ClassicMenuButton(
             text = "View",
@@ -1435,9 +1611,34 @@ private fun ClassicMenuBar(
         ) {
             ClassicDropdownMenuItem("Switch to mobile layout", Icons.Filled.PhoneAndroid, palette) { runMenuAction(onSwitchToMobile) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuItem("Compare", Icons.Filled.ViewColumn, palette, enabled = compareEnabled, checked = compareActive) { runMenuAction(onCompare) }
+            ClassicDropdownMenuHeader("Document view", palette)
             ClassicDropdownMenuItem("Read mode", if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, palette, checked = readOnly) { runMenuAction(onToggleReadMode) }
             ClassicDropdownMenuItem("Zen mode", if (zenMode) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen, palette, checked = zenMode) { runMenuAction(onToggleZenMode) }
+            ClassicDropdownMenuItem("Markdown preview", Icons.Filled.Visibility, palette, enabled = previewEnabled, checked = previewActive) { runMenuAction(onTogglePreview) }
+            ClassicDropdownMenuItem("Virtual trackpad", Icons.Filled.TouchApp, palette, checked = trackpadActive) { runMenuAction(onToggleTrackpad) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuHeader("Editor chrome", palette)
+            ClassicDropdownMenuItem("Word wrap", Icons.AutoMirrored.Filled.WrapText, palette, checked = displayOptions.wordWrap) { runMenuAction(onToggleWordWrap) }
+            ClassicDropdownMenuItem("Line numbers", Icons.Filled.FormatListNumbered, palette, checked = displayOptions.lineNumbers) { runMenuAction(onToggleLineNumbers) }
+            ClassicDropdownMenuItem("Accessory toolbar", Icons.Filled.Keyboard, palette, checked = displayOptions.accessoryBar) { runMenuAction(onToggleAccessoryBar) }
+        }
+        ClassicMenuButton(
+            text = "Syntax",
+            menu = ClassicMenu.LANGUAGE,
+            openMenu = openMenu,
+            palette = palette,
+            onOpen = { openMenu = it },
+        ) {
+            DocumentLanguage.entries.forEach { language ->
+                ClassicDropdownMenuItem(
+                    text = language.displayName,
+                    icon = Icons.Filled.Code,
+                    palette = palette,
+                    checked = language == activeLanguage,
+                ) {
+                    runMenuAction { onLanguageSelect(language) }
+                }
+            }
         }
         ClassicMenuButton(
             text = "Settings",
@@ -1446,9 +1647,14 @@ private fun ClassicMenuBar(
             palette = palette,
             onOpen = { openMenu = it },
         ) {
-            ClassicDropdownMenuItem("Preferences...", Icons.Filled.Settings, palette) { runMenuAction(onMore) }
+            ClassicDropdownMenuItem("Preferences...", Icons.Filled.Settings, palette) { runMenuAction(onPreferences) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownMenuHeader("Theme", palette)
+            ClassicDropdownMenuHeader("Appearance", palette)
+            ClassicDropdownMenuItem("Appearance preferences...", Icons.Filled.Settings, palette) { runMenuAction(onPreferences) }
+            ClassicDropdownMenuItem("Toolbar preferences...", Icons.Filled.Keyboard, palette) { runMenuAction(onPreferences) }
+            ClassicDropdownMenuItem("Next theme", Icons.Filled.Palette, palette) { runMenuAction(onCycleTheme) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuHeader("Themes", palette)
             ThemeName.entries.filterNot { it == ThemeName.CUSTOM }.forEach { theme ->
                 ClassicDropdownMenuItem(
                     text = theme.displayTitle,
@@ -1467,18 +1673,27 @@ private fun ClassicMenuBar(
             palette = palette,
             onOpen = { openMenu = it },
         ) {
-            ClassicDropdownMenuItem("Compare documents", Icons.Filled.ViewColumn, palette, enabled = compareEnabled, checked = compareActive) { runMenuAction(onCompare) }
-            ClassicDropdownMenuItem("Language...", Icons.Filled.Code, palette) { runMenuAction(onMore) }
-            ClassicDropdownMenuItem("More commands...", Icons.Filled.MoreHoriz, palette) { runMenuAction(onMore) }
+            ClassicDropdownMenuHeader("Line operations", palette)
+            ClassicDropdownMenuItem("Duplicate current line", Icons.Filled.AddBox, palette, enabled = !readOnly) { runMenuAction(onDuplicateLine) }
+            ClassicDropdownMenuItem("Delete current line", Icons.Filled.IndeterminateCheckBox, palette, enabled = !readOnly, destructive = true) { runMenuAction(onDeleteLine) }
+            ClassicDropdownMenuItem("Move line up", Icons.Filled.KeyboardArrowUp, palette, enabled = !readOnly) { runMenuAction(onMoveLineUp) }
+            ClassicDropdownMenuItem("Move line down", Icons.Filled.KeyboardArrowDown, palette, enabled = !readOnly) { runMenuAction(onMoveLineDown) }
+            ClassicDropdownSeparator(palette)
+            ClassicDropdownMenuItem("Sort lines", Icons.Filled.SortByAlpha, palette, enabled = !readOnly) { runMenuAction(onSort) }
+            ClassicDropdownMenuItem("Trim trailing spaces", Icons.AutoMirrored.Filled.FormatAlignLeft, palette, enabled = !readOnly) { runMenuAction(onTrim) }
+            ClassicDropdownMenuItem("Trim leading spaces", Icons.Filled.ContentCut, palette, enabled = !readOnly) { runMenuAction(onTrimLeading) }
+            ClassicDropdownMenuItem("Join selected lines", Icons.AutoMirrored.Filled.FormatAlignLeft, palette, enabled = !readOnly) { runMenuAction(onJoinLines) }
+            ClassicDropdownMenuItem("Reverse lines", Icons.Filled.SwapVert, palette, enabled = !readOnly) { runMenuAction(onReverseLines) }
+            ClassicDropdownMenuItem("Unique lines", Icons.Filled.FilterList, palette, enabled = !readOnly) { runMenuAction(onRemoveDuplicateLines) }
         }
         ClassicMenuButton(
-            text = "Help",
+            text = "?",
             menu = ClassicMenu.HELP,
             openMenu = openMenu,
             palette = palette,
             onOpen = { openMenu = it },
         ) {
-            ClassicDropdownMenuItem("About Notepad 3++", Icons.Filled.Info, palette) { runMenuAction(onMore) }
+            ClassicDropdownMenuItem("About Notepad 3++", Icons.Filled.Info, palette) { runMenuAction(onShowAbout) }
         }
         Spacer(Modifier.weight(1f))
         ClassicMiniIconButton(icon = Icons.Filled.PhoneAndroid, label = "Mobile layout", palette = palette, onClick = onSwitchToMobile)
@@ -1499,12 +1714,12 @@ private fun ClassicMenuButton(
         Text(
             text = text,
             color = if (selected) palette.primaryForeground.toColor() else palette.foreground.toColor(),
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Normal, fontSize = 13.sp),
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Normal, fontSize = 12.sp),
             modifier = Modifier
                 .height(23.dp)
                 .background(if (selected) palette.primary.toColor() else Color.Transparent)
                 .clickable { onOpen(if (selected) null else menu) }
-                .padding(horizontal = 8.dp, vertical = 3.dp),
+                .padding(horizontal = 5.dp, vertical = 3.dp),
         )
         DropdownMenu(
             expanded = selected,
@@ -1597,6 +1812,7 @@ private fun ClassicToolRack(
     onReplace: () -> Unit,
     onCompare: () -> Unit,
     onMore: () -> Unit,
+    onPreferences: () -> Unit,
     onCycleTheme: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -1737,7 +1953,7 @@ private fun ClassicToolRack(
             ClassicToolbarButton(icon = Icons.Filled.VisibilityOff, label = "Read mode", palette = palette, active = readOnly, onClick = onToggleReadMode)
             ClassicToolbarButton(icon = Icons.Filled.Fullscreen, label = "Zen mode", palette = palette, onClick = onToggleZenMode)
             ClassicToolbarButton(icon = Icons.Filled.Palette, label = "Theme", palette = palette, onClick = onCycleTheme)
-            ClassicToolbarButton(icon = Icons.Filled.Settings, label = "Preferences", palette = palette, onClick = onMore)
+            ClassicToolbarButton(icon = Icons.Filled.Settings, label = "Preferences", palette = palette, onClick = onPreferences)
         }
     }
 }
@@ -2368,6 +2584,186 @@ private fun diffStatusColor(status: LineDiff.Status?, palette: Palette): Color =
     }
 
 @Composable
+private fun PreferencesPage(
+    palette: Palette,
+    activeTheme: ThemeName,
+    layoutMode: EditorLayoutMode,
+    displayOptions: EditorDisplayOptions,
+    onDismiss: () -> Unit,
+    onThemeSelect: (ThemeName) -> Unit,
+    onSetLayoutMode: (EditorLayoutMode) -> Unit,
+    onToggleWordWrap: () -> Unit,
+    onToggleLineNumbers: () -> Unit,
+    onToggleAccessoryBar: () -> Unit,
+    onToolbarRowsDown: () -> Unit,
+    onToolbarRowsUp: () -> Unit,
+    onToolbarButtonSizeSelect: (AccessoryToolbarButtonSize) -> Unit,
+    onToolbarContentModeSelect: (AccessoryToolbarContentMode) -> Unit,
+    onToggleStaticAccessoryButton: (AccessoryToolbarButton) -> Unit,
+    onToggleHiddenAccessoryButton: (AccessoryToolbarButton) -> Unit,
+    onFontSizeDown: () -> Unit,
+    onFontSizeUp: () -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+    Surface(
+        color = palette.background.toColor(),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(palette.chromeGradientStart.toColor(), palette.chromeGradientEnd.toColor()),
+                        ),
+                    )
+                    .border(1.dp, palette.border.toColor())
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Preferences",
+                    color = palette.foreground.toColor(),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.weight(1f),
+                )
+                CommandButton(text = "Done", palette = palette, primary = true, onClick = onDismiss)
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 18.dp),
+            ) {
+                MenuSectionHeader("Appearance", palette)
+                ThemeName.entries.filterNot { it == ThemeName.CUSTOM }.forEach { theme ->
+                    MenuActionRow(
+                        icon = Icons.Filled.Palette,
+                        title = theme.displayTitle,
+                        palette = palette,
+                        checked = theme == activeTheme,
+                    ) { onThemeSelect(theme) }
+                }
+
+                MenuSectionHeader("Layout", palette)
+                MenuActionRow(
+                    icon = Icons.Filled.PhoneAndroid,
+                    title = "Mobile layout",
+                    palette = palette,
+                    checked = layoutMode == EditorLayoutMode.MOBILE,
+                ) { onSetLayoutMode(EditorLayoutMode.MOBILE) }
+                MenuActionRow(
+                    icon = Icons.Filled.DesktopWindows,
+                    title = "Classic layout",
+                    palette = palette,
+                    checked = layoutMode == EditorLayoutMode.CLASSIC,
+                ) { onSetLayoutMode(EditorLayoutMode.CLASSIC) }
+
+                MenuSectionHeader("Editor", palette)
+                MenuActionRow(Icons.AutoMirrored.Filled.WrapText, "Word wrap", palette, checked = displayOptions.wordWrap) {
+                    onToggleWordWrap()
+                }
+                MenuActionRow(Icons.Filled.FormatListNumbered, "Line numbers", palette, checked = displayOptions.lineNumbers) {
+                    onToggleLineNumbers()
+                }
+                PreferenceStepperRow(
+                    icon = Icons.Filled.FormatSize,
+                    title = "Font size",
+                    value = "${displayOptions.fontSizeSp} sp",
+                    palette = palette,
+                    onDown = onFontSizeDown,
+                    onUp = onFontSizeUp,
+                )
+
+                MenuSectionHeader("Toolbar", palette)
+                MenuActionRow(Icons.Filled.Keyboard, "Accessory toolbar", palette, checked = displayOptions.accessoryBar) {
+                    onToggleAccessoryBar()
+                }
+                PreferenceStepperRow(
+                    icon = Icons.Filled.ViewColumn,
+                    title = "Toolbar rows",
+                    value = displayOptions.accessoryToolbarRows.toString(),
+                    palette = palette,
+                    onDown = onToolbarRowsDown,
+                    onUp = onToolbarRowsUp,
+                )
+                AccessoryToolbarButtonSize.entries.forEach { size ->
+                    MenuActionRow(
+                        icon = Icons.Filled.FormatSize,
+                        title = "${size.displayTitle} buttons",
+                        palette = palette,
+                        checked = size == displayOptions.accessoryToolbarButtonSize,
+                    ) { onToolbarButtonSizeSelect(size) }
+                }
+                AccessoryToolbarContentMode.entries.forEach { mode ->
+                    MenuActionRow(
+                        icon = mode.preferenceIcon,
+                        title = mode.displayTitle,
+                        palette = palette,
+                        checked = mode == displayOptions.accessoryToolbarContentMode,
+                    ) { onToolbarContentModeSelect(mode) }
+                }
+
+                MenuSectionHeader("Pinned Toolbar Buttons", palette)
+                AccessoryToolbarButton.entries.forEach { button ->
+                    MenuActionRow(
+                        icon = button.preferenceIcon,
+                        title = button.displayTitle,
+                        palette = palette,
+                        checked = button in displayOptions.staticAccessoryButtons,
+                    ) { onToggleStaticAccessoryButton(button) }
+                }
+
+                MenuSectionHeader("Hidden Toolbar Buttons", palette)
+                AccessoryToolbarButton.entries.forEach { button ->
+                    MenuActionRow(
+                        icon = button.preferenceIcon,
+                        title = button.displayTitle,
+                        palette = palette,
+                        checked = button in displayOptions.hiddenAccessoryButtons,
+                    ) { onToggleHiddenAccessoryButton(button) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreferenceStepperRow(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    palette: Palette,
+    onDown: () -> Unit,
+    onUp: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = palette.foreground.toColor(), modifier = Modifier.size(21.dp))
+        Text(
+            text = title,
+            color = palette.foreground.toColor(),
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
+            modifier = Modifier.weight(1f),
+        )
+        CommandButton(text = "-", palette = palette, modifier = Modifier.size(width = 44.dp, height = 30.dp), onClick = onDown)
+        Text(
+            text = value,
+            color = palette.mutedForeground.toColor(),
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+        )
+        CommandButton(text = "+", palette = palette, modifier = Modifier.size(width = 44.dp, height = 30.dp), onClick = onUp)
+    }
+}
+
+@Composable
 private fun MorePanel(
     palette: Palette,
     canUndo: Boolean,
@@ -2430,6 +2826,7 @@ private fun MorePanel(
     onToggleLineNumbers: () -> Unit,
     onToggleAccessoryBar: () -> Unit,
     onCycleTheme: () -> Unit,
+    onPreferences: () -> Unit,
     onShowAbout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2534,10 +2931,11 @@ private fun MorePanel(
             MenuActionRow(Icons.Filled.Keyboard, "Keyboard toolbar", palette, checked = displayOptions.accessoryBar) { run(onToggleAccessoryBar) }
             MenuFontRow(displayOptions.fontSizeSp, palette, onFontSizeDown, onFontSizeUp)
 
-            MenuSectionHeader("Tools", palette)
-            MenuActionRow(Icons.Filled.Settings, "Preferences", palette, subtitle = "Editor settings are in this sheet", enabled = false) {}
+            MenuSectionHeader("Settings", palette)
+            MenuActionRow(Icons.Filled.Settings, "Preferences", palette, subtitle = "Full-screen settings page") { run(onPreferences) }
+            MenuActionRow(Icons.Filled.Settings, "Appearance", palette, subtitle = "Themes, toolbar, layout, editor display") { run(onPreferences) }
             MenuActionRow(Icons.Filled.Code, "Change language", palette) { run(onChangeLanguage) }
-            MenuActionRow(Icons.Filled.Palette, "Theme quick toggle", palette) { run(onCycleTheme) }
+            MenuActionRow(Icons.Filled.Palette, "Cycle theme", palette) { run(onCycleTheme) }
 
             MenuSectionHeader("Help", palette)
             MenuActionRow(Icons.Filled.Info, "About Notepad 3++", palette) { run(onShowAbout) }
@@ -2997,6 +3395,7 @@ private fun TrackpadPanel(
 @Composable
 private fun MobileKeyboardAccessory(
     palette: Palette,
+    displayOptions: EditorDisplayOptions,
     canUndo: Boolean,
     canRedo: Boolean,
     canCut: Boolean,
@@ -3029,190 +3428,316 @@ private fun MobileKeyboardAccessory(
     onCompare: () -> Unit,
     onMore: () -> Unit,
 ) {
+    val toolbarRows = displayOptions.accessoryToolbarRows
+    val buttonSize = displayOptions.accessoryToolbarButtonSize
+    val contentMode = displayOptions.accessoryToolbarContentMode
+    val keyboardToggle = keyboardAccessoryToggleState(
+        keyboardSuppressed = keyboardSuppressed,
+        readOnly = readOnly,
+    )
+    val allActions = listOf(
+        AccessoryToolbarAction(AccessoryToolbarButton.SHIFT, label = "Shift", active = shiftActive, onClick = onShiftToggle),
+        AccessoryToolbarAction(AccessoryToolbarButton.MOVE_UP, Icons.Filled.KeyboardArrowUp, "Up", onClick = onMoveUp),
+        AccessoryToolbarAction(
+            AccessoryToolbarButton.DELETE_BACKWARD,
+            Icons.AutoMirrored.Filled.Backspace,
+            "Delete",
+            enabled = !readOnly,
+            onClick = onDeleteBackward,
+        ),
+        AccessoryToolbarAction(AccessoryToolbarButton.MOVE_LEFT, Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", onClick = onMoveLeft),
+        AccessoryToolbarAction(AccessoryToolbarButton.MOVE_DOWN, Icons.Filled.KeyboardArrowDown, "Down", onClick = onMoveDown),
+        AccessoryToolbarAction(AccessoryToolbarButton.MOVE_RIGHT, Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", onClick = onMoveRight),
+        AccessoryToolbarAction(
+            AccessoryToolbarButton.HIDE_KEYBOARD,
+            Icons.Filled.KeyboardArrowDown,
+            keyboardToggle.label,
+            enabled = keyboardToggle.enabled,
+            active = keyboardToggle.active,
+            onClick = onToggleKeyboardSuppression,
+        ),
+        AccessoryToolbarAction(AccessoryToolbarButton.CUT, Icons.Filled.ContentCut, "Cut", enabled = canCut, onClick = onCut),
+        AccessoryToolbarAction(AccessoryToolbarButton.COPY, Icons.Filled.ContentCopy, "Copy", onClick = onCopy),
+        AccessoryToolbarAction(AccessoryToolbarButton.PASTE, Icons.Filled.ContentPaste, "Paste", enabled = canPaste && !readOnly, onClick = onPaste),
+        AccessoryToolbarAction(AccessoryToolbarButton.SELECT_WORD, Icons.AutoMirrored.Filled.ShortText, "Word", onClick = onSelectWord),
+        AccessoryToolbarAction(AccessoryToolbarButton.SELECT_LINE, Icons.AutoMirrored.Filled.Subject, "Line", onClick = onSelectLine),
+        AccessoryToolbarAction(AccessoryToolbarButton.SELECT_ALL, Icons.Filled.SelectAll, "All", onClick = onSelectAll),
+        AccessoryToolbarAction(AccessoryToolbarButton.UNDO, Icons.AutoMirrored.Filled.Undo, "Undo", enabled = canUndo, onClick = onUndo),
+        AccessoryToolbarAction(AccessoryToolbarButton.REDO, Icons.AutoMirrored.Filled.Redo, "Redo", enabled = canRedo, onClick = onRedo),
+        AccessoryToolbarAction(
+            AccessoryToolbarButton.READ_MODE,
+            if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+            "Read",
+            active = readOnly,
+            onClick = onReadToggle,
+        ),
+        AccessoryToolbarAction(AccessoryToolbarButton.FIND, Icons.Filled.Search, "Find", active = findActive, onClick = onFind),
+        AccessoryToolbarAction(AccessoryToolbarButton.REPLACE, Icons.Filled.FindReplace, "Replace", onClick = onReplace),
+        AccessoryToolbarAction(AccessoryToolbarButton.INSERT_DATE, Icons.Filled.AccessTime, "Date", enabled = !readOnly, onClick = onInsertDateTime),
+        AccessoryToolbarAction(AccessoryToolbarButton.OPEN_DOCUMENTS, Icons.Filled.FolderOpen, "Open", onClick = onOpenDocuments),
+        AccessoryToolbarAction(AccessoryToolbarButton.COMPARE, Icons.Filled.ViewColumn, "Compare", active = compareActive, onClick = onCompare),
+        AccessoryToolbarAction(AccessoryToolbarButton.MORE, Icons.Filled.MoreHoriz, "More", onClick = onMore),
+    )
+    val visibleActions = allActions.filterNot { it.id in displayOptions.hiddenAccessoryButtons }
+    val staticActions = visibleActions.filter { it.id in displayOptions.staticAccessoryButtons }
+    val scrollingActions = visibleActions.filterNot { it.id in displayOptions.staticAccessoryButtons }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(92.dp)
+            .height((buttonSize.rowHeightDp * toolbarRows + 8).dp)
             .background(palette.card.toColor())
             .border(1.dp, palette.border.toColor())
             .padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AccessoryStaticCluster(
-            palette = palette,
-            shiftActive = shiftActive,
-            readOnly = readOnly,
-            onShiftToggle = onShiftToggle,
-            onMoveUp = onMoveUp,
-            onDeleteBackward = onDeleteBackward,
-            onMoveLeft = onMoveLeft,
-            onMoveDown = onMoveDown,
-            onMoveRight = onMoveRight,
-        )
-        Spacer(
-            Modifier
-                .fillMaxHeight()
-                .width(1.dp)
-                .background(palette.border.toColor()),
-        )
+        if (staticActions.isNotEmpty()) {
+            AccessoryStaticCluster(
+                actions = staticActions,
+                toolbarRows = toolbarRows,
+                buttonSize = buttonSize,
+                contentMode = contentMode,
+                palette = palette,
+            )
+            Spacer(
+                Modifier
+                    .fillMaxHeight()
+                    .width(1.dp)
+                    .background(palette.border.toColor()),
+            )
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                val keyboardToggle = keyboardAccessoryToggleState(
-                    keyboardSuppressed = keyboardSuppressed,
-                    readOnly = readOnly,
-                )
-                AccessoryButton(
-                    Icons.Filled.KeyboardArrowDown,
-                    keyboardToggle.label,
-                    palette,
-                    enabled = keyboardToggle.enabled,
-                    active = keyboardToggle.active,
-                    onClick = onToggleKeyboardSuppression,
-                )
-                AccessoryDivider(palette)
-                AccessoryButton(Icons.Filled.ContentCut, "Cut", palette, enabled = canCut, onClick = onCut)
-                AccessoryButton(Icons.Filled.ContentCopy, "Copy", palette, onClick = onCopy)
-                AccessoryButton(Icons.Filled.ContentPaste, "Paste", palette, enabled = canPaste && !readOnly, onClick = onPaste)
-                AccessoryDivider(palette)
-                AccessoryButton(Icons.AutoMirrored.Filled.ShortText, "Word", palette, onClick = onSelectWord)
-                AccessoryButton(Icons.AutoMirrored.Filled.Subject, "Line", palette, onClick = onSelectLine)
-                AccessoryButton(Icons.Filled.SelectAll, "All", palette, onClick = onSelectAll)
-            }
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                AccessoryButton(Icons.AutoMirrored.Filled.Undo, "Undo", palette, enabled = canUndo, onClick = onUndo)
-                AccessoryButton(Icons.AutoMirrored.Filled.Redo, "Redo", palette, enabled = canRedo, onClick = onRedo)
-                AccessoryDivider(palette)
-                AccessoryButton(if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, "Read", palette, active = readOnly, onClick = onReadToggle)
-                AccessoryButton(Icons.Filled.Search, "Find", palette, active = findActive, onClick = onFind)
-                AccessoryButton(Icons.Filled.FindReplace, "Replace", palette, onClick = onReplace)
-                AccessoryDivider(palette)
-                AccessoryButton(Icons.Filled.AccessTime, "Date", palette, enabled = !readOnly, onClick = onInsertDateTime)
-                AccessoryButton(Icons.Filled.FolderOpen, "Open", palette, onClick = onOpenDocuments)
-                AccessoryButton(Icons.Filled.ViewColumn, "Compare", palette, active = compareActive, onClick = onCompare)
-                AccessoryButton(Icons.Filled.MoreHoriz, "More", palette, onClick = onMore)
+            chunkToolbarActions(scrollingActions, toolbarRows).forEach { rowActions ->
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    rowActions.forEach { action ->
+                        AccessoryToolbarActionButton(
+                            action = action,
+                            buttonSize = buttonSize,
+                            contentMode = contentMode,
+                            palette = palette,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
+private data class AccessoryToolbarAction(
+    val id: AccessoryToolbarButton,
+    val icon: ImageVector? = null,
+    val label: String = id.displayTitle,
+    val enabled: Boolean = true,
+    val active: Boolean = false,
+    val onClick: () -> Unit,
+)
+
 @Composable
 private fun AccessoryStaticCluster(
+    actions: List<AccessoryToolbarAction>,
+    toolbarRows: Int,
+    buttonSize: AccessoryToolbarButtonSize,
+    contentMode: AccessoryToolbarContentMode,
     palette: Palette,
-    shiftActive: Boolean,
-    readOnly: Boolean,
-    onShiftToggle: () -> Unit,
-    onMoveUp: () -> Unit,
-    onDeleteBackward: () -> Unit,
-    onMoveLeft: () -> Unit,
-    onMoveDown: () -> Unit,
-    onMoveRight: () -> Unit,
 ) {
+    val columns = ((actions.size + toolbarRows - 1) / toolbarRows).coerceAtLeast(1)
     Column(
         modifier = Modifier
-            .width(140.dp)
+            .width((buttonSize.minWidthDp(contentMode) * columns + 8).dp)
             .fillMaxHeight()
             .padding(horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            AccessoryClusterTextButton("Shift", palette, active = shiftActive, modifier = Modifier.weight(1f), onClick = onShiftToggle)
-            AccessoryClusterButton(Icons.Filled.KeyboardArrowUp, "Up", palette, modifier = Modifier.weight(1f), onClick = onMoveUp)
-            AccessoryClusterButton(Icons.AutoMirrored.Filled.Backspace, "Delete", palette, enabled = !readOnly, modifier = Modifier.weight(1f), onClick = onDeleteBackward)
-        }
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            AccessoryClusterButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", palette, modifier = Modifier.weight(1f), onClick = onMoveLeft)
-            AccessoryClusterButton(Icons.Filled.KeyboardArrowDown, "Down", palette, modifier = Modifier.weight(1f), onClick = onMoveDown)
-            AccessoryClusterButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", palette, modifier = Modifier.weight(1f), onClick = onMoveRight)
+        repeat(toolbarRows) { rowIndex ->
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                repeat(columns) { columnIndex ->
+                    val action = actions.getOrNull(rowIndex * columns + columnIndex)
+                    if (action == null) {
+                        Spacer(Modifier.weight(1f))
+                    } else {
+                        AccessoryToolbarActionButton(
+                            action = action,
+                            buttonSize = buttonSize,
+                            contentMode = contentMode,
+                            palette = palette,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun AccessoryClusterTextButton(
-    label: String,
+private fun AccessoryToolbarActionButton(
+    action: AccessoryToolbarAction,
+    buttonSize: AccessoryToolbarButtonSize,
+    contentMode: AccessoryToolbarContentMode,
     palette: Palette,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    active: Boolean = false,
-    onClick: () -> Unit,
 ) {
     val color = when {
-        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.42f)
-        active -> palette.primary.toColor()
+        !action.enabled -> palette.mutedForeground.toColor().copy(alpha = 0.42f)
+        action.active -> palette.primary.toColor()
         else -> palette.foreground.toColor()
     }
-    Box(
-        modifier = modifier
-            .fillMaxHeight()
-            .background(if (active) palette.muted.toColor() else Color.Transparent, RoundedCornerShape(3.dp))
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            color = color,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Clip,
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val latestOnClick = rememberUpdatedState(action.onClick)
+    val repeats = action.id.repeatsOnHold
+    if (repeats) {
+        LaunchedEffect(isPressed, action.enabled) {
+            if (isPressed && action.enabled) {
+                latestOnClick.value()
+                delay(accessoryRepeatPressSpec.initialDelayMillis)
+                var iteration = 0
+                while (true) {
+                    latestOnClick.value()
+                    delay(repeatDelayForIteration(iteration))
+                    iteration += 1
+                }
+            }
+        }
+    }
+    val pressModifier = if (repeats) {
+        Modifier.clickable(
+            enabled = action.enabled,
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = {},
         )
+    } else {
+        Modifier.clickable(enabled = action.enabled, onClick = action.onClick)
+    }
+    val showIcon = action.icon != null && contentMode != AccessoryToolbarContentMode.TEXT_ONLY
+    val showText = contentMode != AccessoryToolbarContentMode.ICON_ONLY || action.icon == null
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = buttonSize.minWidthDp(contentMode).dp)
+            .fillMaxHeight()
+            .background(if (action.active) palette.muted.toColor() else Color.Transparent, RoundedCornerShape(3.dp))
+            .then(pressModifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            showIcon && showText -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+            ) {
+                Icon(action.icon, contentDescription = action.label, tint = color, modifier = Modifier.size(buttonSize.iconDp.dp))
+                Text(
+                    text = action.label,
+                    color = color,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = buttonSize.labelSp.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            showIcon -> Icon(
+                action.icon,
+                contentDescription = action.label,
+                tint = color,
+                modifier = Modifier.size(buttonSize.iconDp.dp),
+            )
+            else -> Text(
+                text = action.label,
+                color = color,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = (buttonSize.labelSp + 1).sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 5.dp),
+            )
+        }
     }
 }
 
-@Composable
-private fun AccessoryClusterButton(
-    icon: ImageVector,
-    label: String,
-    palette: Palette,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    active: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val color = when {
-        !enabled -> palette.mutedForeground.toColor().copy(alpha = 0.42f)
-        active -> palette.primary.toColor()
-        else -> palette.foreground.toColor()
+private val AccessoryToolbarButton.repeatsOnHold: Boolean
+    get() = this in setOf(
+        AccessoryToolbarButton.MOVE_UP,
+        AccessoryToolbarButton.DELETE_BACKWARD,
+        AccessoryToolbarButton.MOVE_LEFT,
+        AccessoryToolbarButton.MOVE_DOWN,
+        AccessoryToolbarButton.MOVE_RIGHT,
+    )
+
+private val AccessoryToolbarButtonSize.rowHeightDp: Int
+    get() = when (this) {
+        AccessoryToolbarButtonSize.SMALL -> 34
+        AccessoryToolbarButtonSize.MEDIUM -> 44
+        AccessoryToolbarButtonSize.LARGE -> 54
     }
-    Box(
-        modifier = modifier
-            .fillMaxHeight()
-            .background(if (active) palette.muted.toColor() else Color.Transparent, RoundedCornerShape(3.dp))
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(19.dp))
+
+private val AccessoryToolbarButtonSize.iconDp: Int
+    get() = when (this) {
+        AccessoryToolbarButtonSize.SMALL -> 16
+        AccessoryToolbarButtonSize.MEDIUM -> 19
+        AccessoryToolbarButtonSize.LARGE -> 23
+    }
+
+private val AccessoryToolbarButtonSize.labelSp: Int
+    get() = when (this) {
+        AccessoryToolbarButtonSize.SMALL -> 8
+        AccessoryToolbarButtonSize.MEDIUM -> 9
+        AccessoryToolbarButtonSize.LARGE -> 11
+    }
+
+private fun AccessoryToolbarButtonSize.minWidthDp(contentMode: AccessoryToolbarContentMode): Int =
+    when (contentMode) {
+        AccessoryToolbarContentMode.ICON_AND_TEXT -> when (this) {
+            AccessoryToolbarButtonSize.SMALL -> 48
+            AccessoryToolbarButtonSize.MEDIUM -> 56
+            AccessoryToolbarButtonSize.LARGE -> 68
+        }
+        AccessoryToolbarContentMode.ICON_ONLY -> when (this) {
+            AccessoryToolbarButtonSize.SMALL -> 36
+            AccessoryToolbarButtonSize.MEDIUM -> 44
+            AccessoryToolbarButtonSize.LARGE -> 54
+        }
+        AccessoryToolbarContentMode.TEXT_ONLY -> when (this) {
+            AccessoryToolbarButtonSize.SMALL -> 52
+            AccessoryToolbarButtonSize.MEDIUM -> 62
+            AccessoryToolbarButtonSize.LARGE -> 76
+        }
+    }
+
+private fun chunkToolbarActions(
+    actions: List<AccessoryToolbarAction>,
+    rows: Int,
+): List<List<AccessoryToolbarAction>> {
+    val safeRows = rows.coerceIn(
+        EditorDisplayOptions.MIN_ACCESSORY_TOOLBAR_ROWS,
+        EditorDisplayOptions.MAX_ACCESSORY_TOOLBAR_ROWS,
+    )
+    if (actions.isEmpty()) return List(safeRows) { emptyList() }
+    val chunkSize = ((actions.size + safeRows - 1) / safeRows).coerceAtLeast(1)
+    return List(safeRows) { index ->
+        actions.drop(index * chunkSize).take(chunkSize)
     }
 }
 
@@ -3363,6 +3888,39 @@ private val ThemeName.displayTitle: String
         ThemeName.CUSTOM -> "Custom"
     }
 
+private val AccessoryToolbarContentMode.preferenceIcon: ImageVector
+    get() = when (this) {
+        AccessoryToolbarContentMode.ICON_AND_TEXT -> Icons.Filled.Keyboard
+        AccessoryToolbarContentMode.ICON_ONLY -> Icons.Filled.Visibility
+        AccessoryToolbarContentMode.TEXT_ONLY -> Icons.Filled.TextFields
+    }
+
+private val AccessoryToolbarButton.preferenceIcon: ImageVector
+    get() = when (this) {
+        AccessoryToolbarButton.HIDE_KEYBOARD -> Icons.Filled.KeyboardArrowDown
+        AccessoryToolbarButton.CUT -> Icons.Filled.ContentCut
+        AccessoryToolbarButton.COPY -> Icons.Filled.ContentCopy
+        AccessoryToolbarButton.PASTE -> Icons.Filled.ContentPaste
+        AccessoryToolbarButton.SELECT_WORD -> Icons.AutoMirrored.Filled.ShortText
+        AccessoryToolbarButton.SELECT_LINE -> Icons.AutoMirrored.Filled.Subject
+        AccessoryToolbarButton.SELECT_ALL -> Icons.Filled.SelectAll
+        AccessoryToolbarButton.UNDO -> Icons.AutoMirrored.Filled.Undo
+        AccessoryToolbarButton.REDO -> Icons.AutoMirrored.Filled.Redo
+        AccessoryToolbarButton.READ_MODE -> Icons.Filled.Visibility
+        AccessoryToolbarButton.FIND -> Icons.Filled.Search
+        AccessoryToolbarButton.REPLACE -> Icons.Filled.FindReplace
+        AccessoryToolbarButton.INSERT_DATE -> Icons.Filled.AccessTime
+        AccessoryToolbarButton.OPEN_DOCUMENTS -> Icons.Filled.FolderOpen
+        AccessoryToolbarButton.COMPARE -> Icons.Filled.ViewColumn
+        AccessoryToolbarButton.MORE -> Icons.Filled.MoreHoriz
+        AccessoryToolbarButton.SHIFT -> Icons.Filled.Keyboard
+        AccessoryToolbarButton.MOVE_UP -> Icons.Filled.KeyboardArrowUp
+        AccessoryToolbarButton.DELETE_BACKWARD -> Icons.AutoMirrored.Filled.Backspace
+        AccessoryToolbarButton.MOVE_LEFT -> Icons.AutoMirrored.Filled.KeyboardArrowLeft
+        AccessoryToolbarButton.MOVE_DOWN -> Icons.Filled.KeyboardArrowDown
+        AccessoryToolbarButton.MOVE_RIGHT -> Icons.AutoMirrored.Filled.KeyboardArrowRight
+    }
+
 private fun Context.hideSoftKeyboard() {
     val activity = this as? Activity ?: return
     val view = activity.currentFocus ?: activity.window.decorView
@@ -3401,7 +3959,9 @@ private fun maxOfSelection(first: TextSelection, second: TextSelection?): TextSe
 private enum class ClassicMenu {
     FILE,
     EDIT,
+    SEARCH,
     VIEW,
+    LANGUAGE,
     SETTINGS,
     TOOLS,
     HELP,

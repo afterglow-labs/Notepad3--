@@ -20,8 +20,35 @@ internal data class KeyboardAccessoryToggleState(
     val enabled: Boolean,
 )
 
+internal data class RepeatPressSpec(
+    val initialDelayMillis: Long = 360L,
+    val firstRepeatDelayMillis: Long = 170L,
+    val minimumDelayMillis: Long = 32L,
+    val accelerationNumerator: Long = 5L,
+    val accelerationDenominator: Long = 6L,
+)
+
+internal val accessoryRepeatPressSpec = RepeatPressSpec()
+
 internal fun keyboardAccessoryMoreSurface(): MobileMenuSurface =
     MobileMenuSurface.MENU_BAR
+
+internal fun accessoryStaticButtonRepeats(label: String): Boolean =
+    label in setOf("Up", "Down", "Left", "Right", "Delete")
+
+internal fun repeatDelayForIteration(
+    iteration: Int,
+    spec: RepeatPressSpec = accessoryRepeatPressSpec,
+): Long {
+    var delay = spec.firstRepeatDelayMillis
+    repeat(iteration.coerceAtLeast(0)) {
+        delay = maxOf(
+            spec.minimumDelayMillis,
+            delay * spec.accelerationNumerator / spec.accelerationDenominator,
+        )
+    }
+    return delay
+}
 
 internal fun keyboardAccessoryToggleState(
     keyboardSuppressed: Boolean,
@@ -107,14 +134,21 @@ private fun menuBarSections(): List<MobileMenuSection> =
                 "Select word",
                 "Select line",
                 "Select paragraph",
+                "Insert date/time",
+                "Uppercase selection",
+                "Lowercase selection",
+                "Indent",
+                "Unindent",
+                "Toggle comment",
+            ).map(::MobileMenuRow),
+        ),
+        MobileMenuSection(
+            title = "Search",
+            rows = listOf(
                 "Find",
                 "Find and replace",
                 "Go to line",
-                "Insert date/time",
-                "Sort lines",
-                "Trim trailing spaces",
-                "Duplicate current line",
-                "Delete current line",
+                "Compare documents",
             ).map(::MobileMenuRow),
         ),
         MobileMenuSection(
@@ -122,7 +156,6 @@ private fun menuBarSections(): List<MobileMenuSection> =
             rows = listOf(
                 "Read mode",
                 "Zen mode",
-                "Compare documents",
                 "Preview markdown",
                 "Virtual trackpad",
                 "Switch to classic layout",
@@ -132,11 +165,42 @@ private fun menuBarSections(): List<MobileMenuSection> =
             ).map(::MobileMenuRow),
         ),
         MobileMenuSection(
-            title = "Tools",
+            title = "Language",
+            rows = listOf(
+                "Plain text",
+                "Markdown",
+                "JSON",
+                "HTML",
+                "CSS",
+                "JavaScript",
+                "Kotlin",
+                "Swift",
+                "Python",
+                "C++",
+            ).map(::MobileMenuRow),
+        ),
+        MobileMenuSection(
+            title = "Settings",
             rows = listOf(
                 "Preferences",
-                "Change language",
-                "Theme quick toggle",
+                "Appearance preferences",
+                "Toolbar preferences",
+                "Cycle theme",
+            ).map(::MobileMenuRow),
+        ),
+        MobileMenuSection(
+            title = "Tools",
+            rows = listOf(
+                "Duplicate current line",
+                "Delete current line",
+                "Move line up",
+                "Move line down",
+                "Sort lines",
+                "Trim trailing spaces",
+                "Trim leading spaces",
+                "Join selected lines",
+                "Reverse lines",
+                "Unique lines",
             ).map(::MobileMenuRow),
         ),
         MobileMenuSection(

@@ -1,6 +1,7 @@
 package com.corey.notepad3.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,10 +30,14 @@ class MobileCommandMenuModelTest {
     fun bottomMoreMirrorsClassicMenuBarSections() {
         val sections = mobileMenuSections(MobileMenuSurface.MENU_BAR)
 
-        assertEquals(listOf("File", "Edit", "View", "Tools", "Help"), sections.map { it.title })
+        assertEquals(listOf("File", "Edit", "Search", "View", "Language", "Settings", "Tools", "Help"), sections.map { it.title })
         assertTrue(sections.first { it.title == "File" }.rows.map { it.title }.contains("Open from Files"))
-        assertTrue(sections.first { it.title == "Edit" }.rows.map { it.title }.contains("Find and replace"))
+        assertTrue(sections.first { it.title == "Edit" }.rows.map { it.title }.contains("Toggle comment"))
+        assertTrue(sections.first { it.title == "Search" }.rows.map { it.title }.contains("Find and replace"))
         assertTrue(sections.first { it.title == "View" }.rows.map { it.title }.contains("Switch to classic layout"))
+        assertTrue(sections.first { it.title == "Language" }.rows.map { it.title }.contains("Markdown"))
+        assertTrue(sections.first { it.title == "Settings" }.rows.map { it.title }.contains("Appearance preferences"))
+        assertTrue(sections.first { it.title == "Tools" }.rows.map { it.title }.contains("Unique lines"))
     }
 
     @Test
@@ -64,5 +69,19 @@ class MobileCommandMenuModelTest {
         assertEquals(false, toggle.active)
         assertTrue(toggle.enabled)
         assertEquals(true, shouldShowSoftKeyboardOnEditorFocus(readOnly = false, keyboardSuppressed = false))
+    }
+
+    @Test
+    fun staticCaretAndDeleteKeysRepeatOnHold() {
+        assertTrue(accessoryStaticButtonRepeats("Left"))
+        assertTrue(accessoryStaticButtonRepeats("Right"))
+        assertTrue(accessoryStaticButtonRepeats("Up"))
+        assertTrue(accessoryStaticButtonRepeats("Down"))
+        assertTrue(accessoryStaticButtonRepeats("Delete"))
+        assertFalse(accessoryStaticButtonRepeats("Shift"))
+        assertEquals(360L, accessoryRepeatPressSpec.initialDelayMillis)
+        assertEquals(170L, repeatDelayForIteration(0))
+        assertTrue(repeatDelayForIteration(4) < repeatDelayForIteration(1))
+        assertEquals(accessoryRepeatPressSpec.minimumDelayMillis, repeatDelayForIteration(100))
     }
 }

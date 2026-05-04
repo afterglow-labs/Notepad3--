@@ -1,6 +1,8 @@
 package com.corey.notepad3.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EditorPreferencesTest {
@@ -51,5 +53,43 @@ class EditorPreferencesTest {
         controller.adjustFontSize(-40)
 
         assertEquals(11, controller.displayOptions.value.fontSizeSp)
+    }
+
+    @Test
+    fun controllerCustomizesAccessoryToolbarLayoutWithinUsableBounds() {
+        val controller = EditorPreferenceController(InMemoryEditorPreferences())
+
+        controller.adjustToolbarRows(10)
+        controller.setToolbarButtonSize(AccessoryToolbarButtonSize.LARGE)
+        controller.setToolbarContentMode(AccessoryToolbarContentMode.ICON_ONLY)
+
+        assertEquals(3, controller.displayOptions.value.accessoryToolbarRows)
+        assertEquals(AccessoryToolbarButtonSize.LARGE, controller.displayOptions.value.accessoryToolbarButtonSize)
+        assertEquals(AccessoryToolbarContentMode.ICON_ONLY, controller.displayOptions.value.accessoryToolbarContentMode)
+
+        controller.adjustToolbarRows(-10)
+
+        assertEquals(1, controller.displayOptions.value.accessoryToolbarRows)
+    }
+
+    @Test
+    fun controllerCustomizesPinnedAndHiddenAccessoryButtons() {
+        val controller = EditorPreferenceController(InMemoryEditorPreferences())
+
+        assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.SHIFT))
+        assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.MOVE_LEFT))
+        assertFalse(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.CUT))
+
+        controller.toggleStaticAccessoryButton(AccessoryToolbarButton.CUT)
+        controller.toggleHiddenAccessoryButton(AccessoryToolbarButton.PASTE)
+
+        assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.CUT))
+        assertTrue(controller.displayOptions.value.hiddenAccessoryButtons.contains(AccessoryToolbarButton.PASTE))
+
+        controller.toggleStaticAccessoryButton(AccessoryToolbarButton.CUT)
+        controller.toggleHiddenAccessoryButton(AccessoryToolbarButton.PASTE)
+
+        assertFalse(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.CUT))
+        assertFalse(controller.displayOptions.value.hiddenAccessoryButtons.contains(AccessoryToolbarButton.PASTE))
     }
 }
