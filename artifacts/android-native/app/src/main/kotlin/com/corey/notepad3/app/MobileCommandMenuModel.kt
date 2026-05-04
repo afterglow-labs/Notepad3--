@@ -14,8 +14,30 @@ internal data class MobileMenuRow(
     val title: String,
 )
 
+internal data class KeyboardAccessoryToggleState(
+    val label: String,
+    val active: Boolean,
+    val enabled: Boolean,
+)
+
 internal fun keyboardAccessoryMoreSurface(): MobileMenuSurface =
     MobileMenuSurface.MENU_BAR
+
+internal fun keyboardAccessoryToggleState(
+    keyboardSuppressed: Boolean,
+    readOnly: Boolean,
+): KeyboardAccessoryToggleState =
+    KeyboardAccessoryToggleState(
+        label = "Hide Keyboard",
+        active = keyboardSuppressed,
+        enabled = !readOnly,
+    )
+
+internal fun shouldShowSoftKeyboardOnEditorFocus(
+    readOnly: Boolean,
+    keyboardSuppressed: Boolean,
+): Boolean =
+    !readOnly && !keyboardSuppressed
 
 internal fun mobileMenuSections(surface: MobileMenuSurface): List<MobileMenuSection> =
     when (surface) {

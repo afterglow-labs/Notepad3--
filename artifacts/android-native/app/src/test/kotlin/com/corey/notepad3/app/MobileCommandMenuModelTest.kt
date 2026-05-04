@@ -39,4 +39,30 @@ class MobileCommandMenuModelTest {
     fun keyboardAccessoryMoreUsesMenuBarSheet() {
         assertEquals(MobileMenuSurface.MENU_BAR, keyboardAccessoryMoreSurface())
     }
+
+    @Test
+    fun hideKeyboardButtonShowsActiveStateWhenToolbarEditModeSuppressesIme() {
+        val toggle = keyboardAccessoryToggleState(
+            keyboardSuppressed = true,
+            readOnly = false,
+        )
+
+        assertEquals("Hide Keyboard", toggle.label)
+        assertTrue(toggle.active)
+        assertTrue(toggle.enabled)
+        assertEquals(false, shouldShowSoftKeyboardOnEditorFocus(readOnly = false, keyboardSuppressed = true))
+    }
+
+    @Test
+    fun hideKeyboardButtonIsInactiveWhenKeyboardMayAppearNormally() {
+        val toggle = keyboardAccessoryToggleState(
+            keyboardSuppressed = false,
+            readOnly = false,
+        )
+
+        assertEquals("Hide Keyboard", toggle.label)
+        assertEquals(false, toggle.active)
+        assertTrue(toggle.enabled)
+        assertEquals(true, shouldShowSoftKeyboardOnEditorFocus(readOnly = false, keyboardSuppressed = false))
+    }
 }

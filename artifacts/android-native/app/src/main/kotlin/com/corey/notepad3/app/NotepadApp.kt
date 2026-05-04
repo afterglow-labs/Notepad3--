@@ -7,12 +7,15 @@ import android.graphics.Color as AndroidColor
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Typeface
+import android.os.Build
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.text.method.KeyListener
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.compose.BackHandler
@@ -148,6 +151,8 @@ fun NotepadApp(
     var readMode by rememberSaveable { mutableStateOf(false) }
     var zenMode by rememberSaveable { mutableStateOf(false) }
     var editorFocused by rememberSaveable { mutableStateOf(false) }
+    var keyboardSuppressed by rememberSaveable { mutableStateOf(false) }
+    var editorView by remember { mutableStateOf<EditorEditText?>(null) }
     val showingMarkdownPreview = previewMode && active.language == DocumentLanguage.MARKDOWN
     val searchOptions = SearchOptions(
         caseSensitive = findCaseSensitive,
@@ -353,7 +358,12 @@ fun NotepadApp(
     }
 
     fun toggleReadMode() {
-        readMode = !readMode
+        val nextReadMode = !readMode
+        readMode = nextReadMode
+        if (nextReadMode) {
+            keyboardSuppressed = true
+            context.hideSoftKeyboard()
+        }
         showMore = false
     }
 
@@ -389,9 +399,17 @@ fun NotepadApp(
         showMore = false
     }
 
-    fun hideKeyboard() {
-        context.hideSoftKeyboard()
-        editorFocused = false
+    fun toggleKeyboardSuppression() {
+        if (readMode) return
+        if (keyboardSuppressed) {
+            keyboardSuppressed = false
+            editorView?.showSoftKeyboard(force = true)
+        } else {
+            keyboardSuppressed = true
+            editorView?.focusWithoutSoftKeyboard()
+            context.hideSoftKeyboard()
+        }
+        showMore = false
     }
 
     fun showAboutPanel() {
@@ -621,8 +639,12 @@ fun NotepadApp(
                             fontSizeSp = displayOptions.fontSizeSp,
                             wordWrap = displayOptions.wordWrap,
                             showLineNumbers = layoutMode == EditorLayoutMode.CLASSIC && displayOptions.lineNumbers,
+                            keyboardSuppressed = keyboardSuppressed,
                             onSelectionChange = ::rememberSelection,
-                            onFocusChange = { editorFocused = it },
+                            onFocusChange = {
+                                editorFocused = it
+                            },
+                            onEditorReady = { editorView = it },
                             onBodyChange = { next, nextSelection ->
                                 if (!readMode) {
                                     selections[active.id] = nextSelection
@@ -665,7 +687,7 @@ fun NotepadApp(
                     StatusBar(document = active, selection = activeSelection, readOnly = readMode, palette = palette)
                     Spacer(Modifier.height(if (layoutMode == EditorLayoutMode.CLASSIC) 0.dp else 4.dp))
                     if (layoutMode == EditorLayoutMode.MOBILE) {
-                        if (editorFocused && displayOptions.accessoryBar) {
+                        if (displayOptions.accessoryBar) {
                             MobileKeyboardAccessory(
                                 palette = palette,
                                 canUndo = canUndo,
@@ -674,9 +696,10 @@ fun NotepadApp(
                                 canPaste = !readMode,
                                 readOnly = readMode,
                                 shiftActive = shiftAnchor != null,
+                                keyboardSuppressed = keyboardSuppressed,
                                 findActive = showFind,
                                 compareActive = showCompare,
-                                onHideKeyboard = ::hideKeyboard,
+                                onToggleKeyboardSuppression = ::toggleKeyboardSuppression,
                                 onReadToggle = ::toggleReadMode,
                                 onUndo = ::undoEdit,
                                 onRedo = ::redoEdit,
@@ -2595,6 +2618,9 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
 
     init {
         gutterReady = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            setAutoHandwritingEnabled(false)
+        }
     }
 
     fun configureGutter(palette: Palette, showLineNumbers: Boolean) {
@@ -2627,6 +2653,17 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
     override fun onTextChanged(text: CharSequence?, start: Int, lengthBefore: Int, lengthAfter: Int) {
         super.onTextChanged(text, start, lengthBefore, lengthAfter)
         syncGutterPadding()
+    }
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        val connection = super.onCreateInputConnection(outAttrs)
+        outAttrs.imeOptions = outAttrs.imeOptions or
+            EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+            EditorInfo.IME_FLAG_NO_FULLSCREEN
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            outAttrs.setStylusHandwritingEnabled(false)
+        }
+        return connection
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -2703,8 +2740,10 @@ private fun EditorTextArea(
     fontSizeSp: Int,
     wordWrap: Boolean,
     showLineNumbers: Boolean,
+    keyboardSuppressed: Boolean,
     onSelectionChange: (TextSelection) -> Unit,
     onFocusChange: (Boolean) -> Unit,
+    onEditorReady: (EditorEditText) -> Unit,
     onBodyChange: (String, TextSelection) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2712,6 +2751,7 @@ private fun EditorTextArea(
     val latestOnBodyChange = rememberUpdatedState(onBodyChange)
     val latestOnSelectionChange = rememberUpdatedState(onSelectionChange)
     val latestOnFocusChange = rememberUpdatedState(onFocusChange)
+    val latestOnEditorReady = rememberUpdatedState(onEditorReady)
 
     AndroidView(
         modifier = modifier
@@ -2720,11 +2760,15 @@ private fun EditorTextArea(
             .border(1.dp, palette.border.toColor(), RoundedCornerShape(palette.radius.dp)),
         factory = { context ->
             EditorEditText(context).apply {
+                showSoftInputOnFocus = shouldShowSoftKeyboardOnEditorFocus(readOnly, keyboardSuppressed)
                 setOnFocusChangeListener { view, hasFocus ->
                     latestOnFocusChange.value(hasFocus)
-                    if (hasFocus && !readOnly) (view as? EditText)?.showSoftKeyboard()
+                    if (hasFocus && shouldShowSoftKeyboardOnEditorFocus(readOnly, keyboardSuppressed)) {
+                        (view as? EditText)?.showSoftKeyboard()
+                    }
                 }
                 selectionChangedCallback = { latestOnSelectionChange.value(it) }
+                latestOnEditorReady.value(this)
                 gravity = Gravity.TOP or Gravity.START
                 isSingleLine = false
                 minLines = 12
@@ -2765,21 +2809,25 @@ private fun EditorTextArea(
             }
         },
         update = { editText ->
+            latestOnEditorReady.value(editText)
+            val shouldShowSoftKeyboard = shouldShowSoftKeyboardOnEditorFocus(readOnly, keyboardSuppressed)
             editText.setOnFocusChangeListener { view, hasFocus ->
                 latestOnFocusChange.value(hasFocus)
-                if (hasFocus && !readOnly) (view as? EditText)?.showSoftKeyboard()
+                if (hasFocus && shouldShowSoftKeyboard) {
+                    (view as? EditText)?.showSoftKeyboard()
+                }
             }
             editText.selectionChangedCallback = { latestOnSelectionChange.value(it) }
             val safeSelection = selection.clamped(document.body.length)
             val bodyChangedExternally = editText.text.toString() != document.body
             editText.isCursorVisible = !readOnly
-            editText.showSoftInputOnFocus = !readOnly
+            editText.showSoftInputOnFocus = shouldShowSoftKeyboard
             if (readOnly) {
                 editText.keyListener = null
             } else if (editText.keyListener == null) {
                 editText.keyListener = editText.editableKeyListener
             }
-            if (!readOnly && editText.isFocused) {
+            if (editText.isFocused && shouldShowSoftKeyboard) {
                 editText.showSoftKeyboard()
             }
             editText.setTextColor(palette.foreground.toColor().toArgb())
@@ -2790,11 +2838,9 @@ private fun EditorTextArea(
             if (bodyChangedExternally) {
                 editText.setText(document.body)
             }
-            val shouldApplySelection =
-                bodyChangedExternally || !editText.isFocused || safeSelection.start != safeSelection.end
             if (
-                shouldApplySelection &&
-                (editText.selectionStart != safeSelection.start || editText.selectionEnd != safeSelection.end)
+                editText.selectionStart != safeSelection.start ||
+                editText.selectionEnd != safeSelection.end
             ) {
                 editText.setSelection(safeSelection.start, safeSelection.end)
             }
@@ -2912,9 +2958,10 @@ private fun MobileKeyboardAccessory(
     canPaste: Boolean,
     readOnly: Boolean,
     shiftActive: Boolean,
+    keyboardSuppressed: Boolean,
     findActive: Boolean,
     compareActive: Boolean,
-    onHideKeyboard: () -> Unit,
+    onToggleKeyboardSuppression: () -> Unit,
     onReadToggle: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -2978,7 +3025,18 @@ private fun MobileKeyboardAccessory(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                AccessoryButton(Icons.Filled.KeyboardArrowDown, "Hide", palette, active = true, onClick = onHideKeyboard)
+                val keyboardToggle = keyboardAccessoryToggleState(
+                    keyboardSuppressed = keyboardSuppressed,
+                    readOnly = readOnly,
+                )
+                AccessoryButton(
+                    Icons.Filled.KeyboardArrowDown,
+                    keyboardToggle.label,
+                    palette,
+                    enabled = keyboardToggle.enabled,
+                    active = keyboardToggle.active,
+                    onClick = onToggleKeyboardSuppression,
+                )
                 AccessoryDivider(palette)
                 AccessoryButton(Icons.Filled.ContentCut, "Cut", palette, enabled = canCut, onClick = onCut)
                 AccessoryButton(Icons.Filled.ContentCopy, "Copy", palette, onClick = onCopy)
@@ -3235,10 +3293,26 @@ private fun Context.hideSoftKeyboard() {
     imm.hideSoftInputFromWindow(view.windowToken, 0)
 }
 
-private fun EditText.showSoftKeyboard() {
+private fun EditText.focusWithoutSoftKeyboard() {
     post {
+        showSoftInputOnFocus = false
+        if (!isFocused) requestFocus()
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return@post
-        imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        imm.hideSoftInputFromWindow(windowToken, 0)
+    }
+}
+
+@Suppress("DEPRECATION")
+private fun EditText.showSoftKeyboard(force: Boolean = false) {
+    post {
+        showSoftInputOnFocus = true
+        if (!isFocused) requestFocus()
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return@post
+        val flag = if (force) InputMethodManager.SHOW_FORCED else InputMethodManager.SHOW_IMPLICIT
+        imm.showSoftInput(this, flag)
+        if (force) {
+            imm.toggleSoftInputFromWindow(windowToken, InputMethodManager.SHOW_FORCED, 0)
+        }
     }
 }
 
