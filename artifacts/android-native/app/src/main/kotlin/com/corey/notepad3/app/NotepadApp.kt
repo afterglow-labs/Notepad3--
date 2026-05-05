@@ -3722,6 +3722,16 @@ private fun MobileKeyboardAccessory(
         )
     }
 
+    if (!keyboardSuppressed) {
+        CompactKeyboardAccessoryStrip(
+            palette = palette,
+            buttonSize = buttonSize,
+            renderKey = ::renderKey,
+            onShowDeck = onToggleKeyboardSuppression,
+        )
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -3849,6 +3859,104 @@ private data class AccessoryDeckRenderKey(
         get() = labelOverride ?: spec.label
     val accessibilityLabel: String
         get() = spec.label
+}
+
+@Composable
+private fun CompactKeyboardAccessoryStrip(
+    palette: Palette,
+    buttonSize: AccessoryToolbarButtonSize,
+    renderKey: (AccessoryDeckKeySpec) -> AccessoryDeckRenderKey,
+    onShowDeck: () -> Unit,
+) {
+    val stripHeight = when (buttonSize) {
+        AccessoryToolbarButtonSize.SMALL -> 50
+        AccessoryToolbarButtonSize.MEDIUM -> 56
+        AccessoryToolbarButtonSize.LARGE -> 62
+    }
+    val darkBackground = Color(0xFF3A3A3A)
+    val darkBorder = Color(0xFF4A4A4A)
+    val compactSpecs = listOf(
+        AccessoryDeckKeySpec(AccessoryDeckActionId.OPEN_DOCUMENTS, "Windows"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.HIDE_KEYBOARD, "Hide"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.SHIFT, "shift"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.CTRL, "ctrl"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.ALT, "alt"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.ENTER, "enter", insertText = "\n"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.COPY, "Copy"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.CUT, "Cut"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.PASTE, "Paste"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.BACKSPACE, "Backspace", repeatOnHold = true),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.MOVE_LEFT, "Left", repeatOnHold = true),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.MOVE_UP, "Up", repeatOnHold = true),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.MOVE_DOWN, "Down", repeatOnHold = true),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.MOVE_RIGHT, "Right", repeatOnHold = true),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.FIND, "Find"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.MORE, "More"),
+    )
+    val scrollState = rememberScrollState()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height((stripHeight + 14).dp)
+            .background(darkBackground)
+            .border(1.dp, darkBorder)
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        compactSpecs.forEach { spec ->
+            val key = renderKey(spec)
+            val finalKey = if (spec.id == AccessoryDeckActionId.HIDE_KEYBOARD) {
+                key.copy(onClick = onShowDeck)
+            } else {
+                key
+            }
+            val fixedWidth = when (spec.id) {
+                AccessoryDeckActionId.OPEN_DOCUMENTS,
+                AccessoryDeckActionId.COPY,
+                AccessoryDeckActionId.CUT,
+                AccessoryDeckActionId.PASTE,
+                AccessoryDeckActionId.BACKSPACE,
+                AccessoryDeckActionId.FIND,
+                AccessoryDeckActionId.MORE -> 54.dp
+                AccessoryDeckActionId.MOVE_LEFT,
+                AccessoryDeckActionId.MOVE_UP,
+                AccessoryDeckActionId.MOVE_DOWN,
+                AccessoryDeckActionId.MOVE_RIGHT -> 50.dp
+                else -> 86.dp
+            }
+            AccessoryDeckKeyButton(
+                key = finalKey,
+                keyHeight = stripHeight,
+                iconOnly = spec.id in setOf(
+                    AccessoryDeckActionId.OPEN_DOCUMENTS,
+                    AccessoryDeckActionId.COPY,
+                    AccessoryDeckActionId.CUT,
+                    AccessoryDeckActionId.PASTE,
+                    AccessoryDeckActionId.BACKSPACE,
+                    AccessoryDeckActionId.FIND,
+                    AccessoryDeckActionId.MORE,
+                ),
+                textOnly = spec.id !in setOf(
+                    AccessoryDeckActionId.OPEN_DOCUMENTS,
+                    AccessoryDeckActionId.COPY,
+                    AccessoryDeckActionId.CUT,
+                    AccessoryDeckActionId.PASTE,
+                    AccessoryDeckActionId.BACKSPACE,
+                    AccessoryDeckActionId.FIND,
+                    AccessoryDeckActionId.MORE,
+                    AccessoryDeckActionId.MOVE_LEFT,
+                    AccessoryDeckActionId.MOVE_UP,
+                    AccessoryDeckActionId.MOVE_DOWN,
+                    AccessoryDeckActionId.MOVE_RIGHT,
+                ),
+                textScale = 0.29f,
+                modifier = Modifier.width(fixedWidth),
+            )
+        }
+    }
 }
 
 @Composable

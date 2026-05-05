@@ -27,8 +27,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private let statusBar = StatusBar()
     private let lineGutter = LineGutter()
 
-    // Keyboard accessory — always attached to the text input
+    // Keyboard surfaces. The compact accessory rides above the system keyboard;
+    // the command deck becomes a custom input view when Hide/esc suppresses it.
     private let keyboardAccessory = KeyboardAccessoryView()
+    private let keyboardCommandDeck = KeyboardAccessoryView()
 
     // Markdown preview — shown in-place when previewMode is on for .markdown docs
     private let markdownPreview = MarkdownPreviewView()
@@ -44,7 +46,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private var readMode = false {
         didSet {
             textView.isEditable = !readMode
-            keyboardAccessory.readMode = readMode
+            keyboardSurfaces.forEach { $0.readMode = readMode }
+            if readMode { showCommandDeckInput() }
             // Read-only has to be visually loud so the user isn't surprised
             // when taps don't register: lock icon in the nav title,
             // destructive-tinted title, muted editor background, and an
@@ -55,6 +58,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
     }
     private var toolbarOpen = true
+    private var commandDeckInputActive = false
 
     // Selection-extension state for the keyboard accessory's Shift toggle.
     // When `shiftAnchor` is non-nil, arrow taps extend the selection from
@@ -84,6 +88,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // Highlighting cache (cheap short-circuit when nothing changed)
     private var lastHighlightedBody: String = ""
     private var lastHighlightedLanguage: NoteLanguage = .plain
+
+    private var keyboardSurfaces: [KeyboardAccessoryView] {
+        [keyboardAccessory, keyboardCommandDeck]
+    }
 
     init(store: NotesStore) {
         self.store = store
@@ -366,16 +374,30 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     private func configureKeyboardAccessory() {
-        let accessory = keyboardAccessory
+        configureKeyboardSurface(keyboardAccessory, usesDeck: false) { [weak self] in
+            self?.showCommandDeckInput()
+        }
+        configureKeyboardSurface(keyboardCommandDeck, usesDeck: true) { [weak self] in
+            self?.showSystemKeyboardInput()
+        }
+        textView.inputAccessoryView = keyboardAccessory
+        textView.inputView = nil
+    }
+
+    private func configureKeyboardSurface(
+        _ accessory: KeyboardAccessoryView,
+        usesDeck: Bool,
+        onHide: @escaping () -> Void
+    ) {
         accessory.autoresizingMask = [.flexibleWidth]
-        accessory.usesKeyboardDeck = true
+        accessory.usesKeyboardDeck = usesDeck
         accessory.rows = prefs.accessoryRows == .double ? .double : .single
         accessory.buttonSize = prefs.accessoryToolbarButtonSize
         accessory.accessoryContentMode = prefs.accessoryToolbarContentMode
         accessory.staticButtons = prefs.staticAccessoryButtons
         accessory.hiddenButtons = prefs.hiddenAccessoryButtons
         accessory.frame = CGRect(x: 0, y: 0, width: 320, height: accessory.preferredHeight)
-        accessory.onHide = { [weak self] in self?.textView.resignFirstResponder() }
+        accessory.onHide = onHide
         accessory.onReadToggle = { [weak self] in self?.readMode.toggle() }
         accessory.onUndo = { [weak self] in self?.undoTextChange() }
         accessory.onRedo = { [weak self] in self?.redoTextChange() }
@@ -398,7 +420,32 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         accessory.onOpenDocs = { [weak self] in self?.presentDocsList() }
         accessory.onCompare = { [weak self] in self?.presentCompare() }
         accessory.onMore = { [weak self] in self?.presentMobileMore() }
-        textView.inputAccessoryView = accessory
+    }
+
+    private func showCommandDeckInput() {
+        guard !commandDeckInputActive else {
+            textView.becomeFirstResponder()
+            return
+        }
+        commandDeckInputActive = true
+        textView.inputAccessoryView = nil
+        textView.inputView = keyboardCommandDeck
+        keyboardCommandDeck.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: keyboardCommandDeck.preferredHeight)
+        textView.reloadInputViews()
+        textView.becomeFirstResponder()
+    }
+
+    private func showSystemKeyboardInput() {
+        guard commandDeckInputActive else {
+            textView.becomeFirstResponder()
+            return
+        }
+        commandDeckInputActive = false
+        textView.inputView = nil
+        textView.inputAccessoryView = keyboardAccessory
+        keyboardAccessory.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: keyboardAccessory.preferredHeight)
+        textView.reloadInputViews()
+        textView.becomeFirstResponder()
     }
 
     // MARK: - Constraint stacks
@@ -448,8 +495,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             // and its internal stack anchors to its own safeAreaLayoutGuide,
             // which doesn't constrain the outer frame — the solver was free to
             // let the bar fill all remaining space and collapse the text view
-            // to zero height. 54pt of chrome + the 34pt home-indicator inset.
-            mobileBottomBar.heightAnchor.constraint(equalToConstant: 88),
+            // to zero height. 60pt of chrome + the 34pt home-indicator inset
+            // leaves enough vertical room for icon+label buttons without
+            // clipping descenders in captions like "Compare" and "Classic".
+            mobileBottomBar.heightAnchor.constraint(equalToConstant: 96),
 
             mobileFab.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             mobileFab.bottomAnchor.constraint(equalTo: mobileBottomBar.topAnchor, constant: -12),
@@ -717,7 +766,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         classicTitleBar.applyPalette(palette)
         statusBar.applyPalette(palette)
         lineGutter.applyPalette(palette)
-        keyboardAccessory.applyPalette(palette)
+        keyboardSurfaces.forEach { $0.applyPalette(palette) }
         pointerOverlay.applyPalette(palette)
 
         let nav = UINavigationBarAppearance()
@@ -750,12 +799,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         classicToolbar.setRows(prefs.toolbarRows == .double ? 2 : 1)
         classicToolbar.isHidden = (prefs.layoutMode == .classic) ? !toolbarOpen : true
         // Keyboard accessory rows and toolbar customization
-        keyboardAccessory.rows = prefs.accessoryRows == .double ? .double : .single
-        keyboardAccessory.buttonSize = prefs.accessoryToolbarButtonSize
-        keyboardAccessory.accessoryContentMode = prefs.accessoryToolbarContentMode
-        keyboardAccessory.staticButtons = prefs.staticAccessoryButtons
-        keyboardAccessory.hiddenButtons = prefs.hiddenAccessoryButtons
-        keyboardAccessory.frame.size.height = keyboardAccessory.preferredHeight
+        keyboardSurfaces.forEach {
+            $0.rows = prefs.accessoryRows == .double ? .double : .single
+            $0.buttonSize = prefs.accessoryToolbarButtonSize
+            $0.accessoryContentMode = prefs.accessoryToolbarContentMode
+            $0.staticButtons = prefs.staticAccessoryButtons
+            $0.hiddenButtons = prefs.hiddenAccessoryButtons
+            $0.frame.size.height = $0.preferredHeight
+        }
         textView.reloadInputViews()
         // Custom palette may have changed
         applyPalette()
@@ -829,8 +880,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         store.updateActive(body: textView.text)
         rehighlight()
         if previewMode { markdownPreview.setMarkdown(textView.text ?? "") }
-        keyboardAccessory.canUndo = textView.undoManager?.canUndo ?? false
-        keyboardAccessory.canRedo = textView.undoManager?.canRedo ?? false
+        keyboardSurfaces.forEach {
+            $0.canUndo = textView.undoManager?.canUndo ?? false
+            $0.canRedo = textView.undoManager?.canRedo ?? false
+        }
         refreshStatusBar()
     }
 
@@ -841,9 +894,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         // the in-progress range.
         if shiftAnchor != nil && !programmaticSelectionChange {
             shiftAnchor = nil
-            keyboardAccessory.shiftActive = false
+            keyboardSurfaces.forEach { $0.shiftActive = false }
         }
-        keyboardAccessory.hasSelection = textView.selectedRange.length > 0
+        keyboardSurfaces.forEach { $0.hasSelection = textView.selectedRange.length > 0 }
         refreshStatusBar()
     }
 
@@ -866,7 +919,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             findBar.findField.resignFirstResponder()
             findBar.replaceField.resignFirstResponder()
         }
-        keyboardAccessory.findActive = visible && !findBar.showsReplace
+        keyboardSurfaces.forEach { $0.findActive = visible && !findBar.showsReplace }
     }
 
     private func findNext(backwards: Bool) {
@@ -1114,10 +1167,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private func toggleShift() {
         if shiftAnchor == nil {
             shiftAnchor = textView.selectedRange.location
-            keyboardAccessory.shiftActive = true
+            keyboardSurfaces.forEach { $0.shiftActive = true }
         } else {
             shiftAnchor = nil
-            keyboardAccessory.shiftActive = false
+            keyboardSurfaces.forEach { $0.shiftActive = false }
         }
     }
 

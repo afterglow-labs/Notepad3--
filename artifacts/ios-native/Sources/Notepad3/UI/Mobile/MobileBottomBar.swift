@@ -66,10 +66,10 @@ final class MobileBottomBar: UIView {
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
 
-            stack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 6),
+            stack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 4),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            stack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -6),
+            stack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -4),
         ])
 
         applyPalette(palette)
@@ -113,23 +113,28 @@ private final class BottomButton: UIControl {
 
         label.translatesAutoresizingMaskIntoConstraints = false
         label.text = title
-        label.font = .systemFont(ofSize: 10, weight: .medium)
+        label.font = .systemFont(ofSize: 9.5, weight: .medium)
         label.textAlignment = .center
+        label.lineBreakMode = .byTruncatingTail
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.78
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
         label.isUserInteractionEnabled = false
         addSubview(label)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 54),
 
             iconView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 26),
-            iconView.heightAnchor.constraint(equalToConstant: 24),
+            iconView.widthAnchor.constraint(equalToConstant: 25),
+            iconView.heightAnchor.constraint(equalToConstant: 23),
 
-            label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 2),
+            label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 3),
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -4),
+            label.heightAnchor.constraint(equalToConstant: 13),
+            label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -5),
         ])
     }
 

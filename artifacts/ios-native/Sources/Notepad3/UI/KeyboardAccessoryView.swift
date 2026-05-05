@@ -642,7 +642,7 @@ final class KeyboardAccessoryView: UIView {
                 [
                     DeckKeySpec(.compare, symbol: "rectangle.split.1x2"),
                     DeckKeySpec(.more, symbol: "ellipsis"),
-                    DeckKeySpec(.hideKeyboard, symbol: "keyboard", title: "Hide"),
+                    DeckKeySpec(.hideKeyboard, symbol: "keyboard", title: usesKeyboardDeck ? "ABC" : "Hide"),
                 ],
             ]
         case .navigation:
