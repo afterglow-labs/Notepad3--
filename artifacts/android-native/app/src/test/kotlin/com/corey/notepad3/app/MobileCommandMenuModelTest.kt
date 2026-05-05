@@ -119,7 +119,7 @@ class MobileCommandMenuModelTest {
     @Test
     fun keyboardAccessoryUsesPagedDeckLikeDesktopKeyboardRows() {
         assertEquals(
-            listOf("Windows", "esc", "shift", "ctrl", "alt", "Switch"),
+            listOf("Windows", "esc", "shift", "ctrl", "alt", "enter"),
             accessoryDeckModifierStrip().map { it.label },
         )
         assertEquals(
@@ -158,6 +158,9 @@ class MobileCommandMenuModelTest {
         assertEquals(AccessoryDeckPage.NAVIGATION, nextAccessoryDeckPage(AccessoryDeckPage.EDIT))
         assertEquals(AccessoryDeckPage.NUMERIC, nextAccessoryDeckPage(AccessoryDeckPage.NAVIGATION))
         assertEquals(AccessoryDeckPage.EDIT, nextAccessoryDeckPage(AccessoryDeckPage.NUMERIC))
+        assertEquals("●••", AccessoryDeckPage.EDIT.pageDotsLabel())
+        assertEquals("˄", accessoryDeckVisualLabel(accessoryDeckKeys(AccessoryDeckPage.NAVIGATION).first { it.id == AccessoryDeckActionId.MOVE_UP }, AccessoryDeckPage.NAVIGATION))
+        assertEquals("‹", accessoryDeckVisualLabel(accessoryDeckKeys(AccessoryDeckPage.NAVIGATION).first { it.id == AccessoryDeckActionId.MOVE_LEFT }, AccessoryDeckPage.NAVIGATION))
     }
 
     @Test

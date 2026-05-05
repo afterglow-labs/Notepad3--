@@ -141,7 +141,7 @@ internal fun accessoryDeckModifierStrip(): List<AccessoryDeckKeySpec> =
         AccessoryDeckKeySpec(AccessoryDeckActionId.SHIFT, "shift"),
         AccessoryDeckKeySpec(AccessoryDeckActionId.CTRL, "ctrl"),
         AccessoryDeckKeySpec(AccessoryDeckActionId.ALT, "alt"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.SWITCH_DECK, "Switch"),
+        AccessoryDeckKeySpec(AccessoryDeckActionId.ENTER, "enter", insertText = "\n"),
     )
 
 internal fun accessoryDeckLeftRail(): List<AccessoryDeckKeySpec> =
@@ -209,6 +209,22 @@ internal fun accessoryDeckKeys(page: AccessoryDeckPage): List<AccessoryDeckKeySp
 
 private fun Int.floorMod(divisor: Int): Int =
     ((this % divisor) + divisor) % divisor
+
+internal fun AccessoryDeckPage.pageDotsLabel(): String =
+    accessoryDeckPages().joinToString("") { if (it == this) "●" else "•" }
+
+internal fun accessoryDeckVisualLabel(
+    spec: AccessoryDeckKeySpec,
+    page: AccessoryDeckPage,
+): String? =
+    when (spec.id) {
+        AccessoryDeckActionId.PAGE_DOTS -> page.pageDotsLabel()
+        AccessoryDeckActionId.MOVE_UP -> "˄"
+        AccessoryDeckActionId.MOVE_DOWN -> "˅"
+        AccessoryDeckActionId.MOVE_LEFT -> "‹"
+        AccessoryDeckActionId.MOVE_RIGHT -> "›"
+        else -> null
+    }
 
 internal fun repeatDelayForIteration(
     iteration: Int,
