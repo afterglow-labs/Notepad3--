@@ -65,6 +65,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // Set true around the moveCursor selectedRange assignment so the
     // delegate doesn't treat our own change as a user-driven cancel.
     private var programmaticSelectionChange = false
+    private enum LineBoundary { case start, end }
 
     // Observer tokens
     private var notesToken: UUID?
@@ -260,8 +261,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         aeroMenuBar.onClose = { [weak self] in guard let self else { return }; self.confirmClose(self.store.activeId) }
         aeroMenuBar.onCloseOthers = { [weak self] in guard let self else { return }; self.store.closeOthers(keep: self.store.activeId) }
 
-        aeroMenuBar.onUndo = { [weak self] in self?.textView.undoManager?.undo() }
-        aeroMenuBar.onRedo = { [weak self] in self?.textView.undoManager?.redo() }
+        aeroMenuBar.onUndo = { [weak self] in self?.undoTextChange() }
+        aeroMenuBar.onRedo = { [weak self] in self?.redoTextChange() }
         aeroMenuBar.onCut = { [weak self] in self?.cutSelection() }
         aeroMenuBar.onCopy = { [weak self] in self?.copySelection() }
         aeroMenuBar.onPaste = { [weak self] in self?.pasteFromClipboard() }
@@ -308,8 +309,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         classicToolbar.onCut = { [weak self] in self?.cutSelection() }
         classicToolbar.onCopy = { [weak self] in self?.copySelection() }
         classicToolbar.onPaste = { [weak self] in self?.pasteFromClipboard() }
-        classicToolbar.onUndo = { [weak self] in self?.textView.undoManager?.undo() }
-        classicToolbar.onRedo = { [weak self] in self?.textView.undoManager?.redo() }
+        classicToolbar.onUndo = { [weak self] in self?.undoTextChange() }
+        classicToolbar.onRedo = { [weak self] in self?.redoTextChange() }
         classicToolbar.onFind = { [weak self] in self?.toggleFind() }
         classicToolbar.onReplace = { [weak self] in self?.toggleFind(showReplace: true) }
         classicToolbar.onTrim = { [weak self] in self?.trimTrailingSpaces() }
@@ -367,6 +368,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private func configureKeyboardAccessory() {
         let accessory = keyboardAccessory
         accessory.autoresizingMask = [.flexibleWidth]
+        accessory.usesKeyboardDeck = true
         accessory.rows = prefs.accessoryRows == .double ? .double : .single
         accessory.buttonSize = prefs.accessoryToolbarButtonSize
         accessory.accessoryContentMode = prefs.accessoryToolbarContentMode
@@ -375,8 +377,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         accessory.frame = CGRect(x: 0, y: 0, width: 320, height: accessory.preferredHeight)
         accessory.onHide = { [weak self] in self?.textView.resignFirstResponder() }
         accessory.onReadToggle = { [weak self] in self?.readMode.toggle() }
-        accessory.onUndo = { [weak self] in self?.textView.undoManager?.undo() }
-        accessory.onRedo = { [weak self] in self?.textView.undoManager?.redo() }
+        accessory.onUndo = { [weak self] in self?.undoTextChange() }
+        accessory.onRedo = { [weak self] in self?.redoTextChange() }
         accessory.onCut = { [weak self] in self?.cutSelection() }
         accessory.onCopy = { [weak self] in self?.copySelection() }
         accessory.onPaste = { [weak self] in self?.pasteFromClipboard() }
@@ -386,6 +388,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         accessory.onArrow = { [weak self] dir in self?.moveCursor(direction: dir) }
         accessory.onShiftToggle = { [weak self] in self?.toggleShift() }
         accessory.onDelete = { [weak self] in self?.deleteBackwardFromCaret() }
+        accessory.onInsertText = { [weak self] text in self?.insertText(text) }
+        accessory.onMoveHome = { [weak self] in self?.moveCursorToLineBoundary(.start) }
+        accessory.onMoveEnd = { [weak self] in self?.moveCursorToLineBoundary(.end) }
+        accessory.onPageUp = { [weak self] in self?.moveCursorByPage(direction: -1) }
+        accessory.onPageDown = { [weak self] in self?.moveCursorByPage(direction: 1) }
         accessory.onFind = { [weak self] in self?.toggleFind() }
         accessory.onInsertDate = { [weak self] in self?.insertText(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short)) }
         accessory.onOpenDocs = { [weak self] in self?.presentDocsList() }
@@ -942,7 +949,27 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         commitReplacement(updated, selectionAfter: NSRange(location: 0, length: 0), actionName: "Replace All")
     }
 
+    private func canMutateText() -> Bool {
+        guard !readMode else {
+            Haptics.warning()
+            return false
+        }
+        return true
+    }
+
+    private func undoTextChange() {
+        guard canMutateText() else { return }
+        textView.undoManager?.undo()
+    }
+
+    private func redoTextChange() {
+        guard canMutateText() else { return }
+        textView.undoManager?.redo()
+    }
+
     private func commitReplacement(_ newBody: String, selectionAfter: NSRange, actionName: String? = nil) {
+        guard canMutateText() else { return }
+
         let oldBody = textView.text ?? ""
         let oldSelection = textView.selectedRange
 
@@ -1026,6 +1053,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // MARK: - Clipboard / selection helpers
 
     private func cutSelection() {
+        guard canMutateText() else { return }
         let sel = textView.selectedRange
         guard sel.length > 0 else { return }
         let ns = (textView.text ?? "") as NSString
@@ -1044,6 +1072,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     private func pasteFromClipboard() {
+        guard canMutateText() else { return }
         guard let value = UIPasteboard.general.string, !value.isEmpty else { return }
         insertText(value)
         Haptics.impact(.light)
@@ -1068,6 +1097,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     private func deleteBackwardFromCaret() {
+        guard canMutateText() else { return }
         // Empty selection: delete the character before the caret.
         // Non-empty selection: delete the selected range.
         let r = textView.selectedRange
@@ -1094,15 +1124,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private func moveCursor(direction: KeyboardAccessoryView.Arrow) {
         let ns = (textView.text ?? "") as NSString
 
-        // The "moving end" of the selection: the side opposite the anchor
-        // when shift is active, or just the caret otherwise.
-        let movingEnd: Int
-        if let anchor = shiftAnchor {
-            let r = textView.selectedRange
-            movingEnd = (r.location == anchor) ? r.location + r.length : r.location
-        } else {
-            movingEnd = textView.selectedRange.location
-        }
+        let movingEnd = accessoryMovingEnd()
 
         let newCaret: Int
         switch direction {
@@ -1112,15 +1134,48 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         case .down:  newCaret = caretVerticallyMoved(in: ns, from: movingEnd, direction: 1)
         }
 
+        applyAccessoryCaret(newCaret)
+    }
+
+    private func accessoryMovingEnd() -> Int {
+        if let anchor = shiftAnchor {
+            let r = textView.selectedRange
+            return (r.location == anchor) ? r.location + r.length : r.location
+        }
+        return textView.selectedRange.location
+    }
+
+    private func applyAccessoryCaret(_ newCaret: Int) {
+        let length = ((textView.text ?? "") as NSString).length
+        let clamped = max(0, min(newCaret, length))
         programmaticSelectionChange = true
         if let anchor = shiftAnchor {
-            let lo = min(anchor, newCaret)
-            let hi = max(anchor, newCaret)
+            let lo = min(anchor, clamped)
+            let hi = max(anchor, clamped)
             textView.selectedRange = NSRange(location: lo, length: hi - lo)
         } else {
-            textView.selectedRange = NSRange(location: newCaret, length: 0)
+            textView.selectedRange = NSRange(location: clamped, length: 0)
         }
+        textView.scrollRangeToVisible(NSRange(location: clamped, length: 0))
         programmaticSelectionChange = false
+    }
+
+    private func moveCursorToLineBoundary(_ boundary: LineBoundary) {
+        let ns = (textView.text ?? "") as NSString
+        let caret = accessoryMovingEnd()
+        let (start, end) = lineRange(in: ns, at: caret)
+        applyAccessoryCaret(boundary == .start ? start : end)
+    }
+
+    private func moveCursorByPage(direction: Int) {
+        let ns = (textView.text ?? "") as NSString
+        guard ns.length > 0 else { return }
+        var caret = accessoryMovingEnd()
+        let linesPerPage = max(8, Int((textView.bounds.height / max(textView.font?.lineHeight ?? 18, 1)).rounded(.down)) - 2)
+        for _ in 0..<linesPerPage {
+            caret = caretVerticallyMoved(in: ns, from: caret, direction: direction < 0 ? -1 : 1)
+        }
+        applyAccessoryCaret(caret)
     }
 
     private func caretVerticallyMoved(in ns: NSString, from caret: Int, direction: Int) -> Int {
@@ -1317,8 +1372,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                 },
             ]),
             SheetSection(title: "Edit", rows: [
-                SheetRow(icon: "arrow.uturn.backward", title: "Undo") { [weak self] in self?.textView.undoManager?.undo() },
-                SheetRow(icon: "arrow.uturn.forward", title: "Redo") { [weak self] in self?.textView.undoManager?.redo() },
+                SheetRow(icon: "arrow.uturn.backward", title: "Undo") { [weak self] in self?.undoTextChange() },
+                SheetRow(icon: "arrow.uturn.forward", title: "Redo") { [weak self] in self?.redoTextChange() },
                 SheetRow(icon: "scissors", title: "Cut") { [weak self] in self?.cutSelection() },
                 SheetRow(icon: "doc.on.doc", title: "Copy") { [weak self] in self?.copySelection() },
                 SheetRow(icon: "doc.on.clipboard", title: "Paste") { [weak self] in self?.pasteFromClipboard() },

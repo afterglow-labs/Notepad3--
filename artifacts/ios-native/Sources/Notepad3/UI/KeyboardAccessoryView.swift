@@ -14,11 +14,74 @@ final class KeyboardAccessoryView: UIView {
 
     enum Rows { case single, double }
     enum Arrow { case left, right, up, down }
+    private enum DeckPage: Int, CaseIterable { case edit, navigation, numeric }
+    private enum DeckAction {
+        case openDocuments
+        case hideKeyboard
+        case shift
+        case ctrl
+        case alt
+        case enter
+        case copy
+        case cut
+        case paste
+        case switchDeck
+        case backspace
+        case undo
+        case redo
+        case find
+        case selectWord
+        case selectLine
+        case selectAll
+        case insertDate
+        case readMode
+        case compare
+        case more
+        case home
+        case end
+        case pageUp
+        case pageDown
+        case moveLeft
+        case moveUp
+        case moveDown
+        case moveRight
+        case tab
+        case inert
+        case insertText(String)
+    }
+
+    private struct DeckKeySpec {
+        let action: DeckAction
+        let title: String?
+        let symbol: String?
+        let visualText: String?
+        let isHoldable: Bool
+        let isDarkKey: Bool
+
+        init(
+            _ action: DeckAction,
+            title: String? = nil,
+            symbol: String? = nil,
+            visualText: String? = nil,
+            hold: Bool = false,
+            dark: Bool = false
+        ) {
+            self.action = action
+            self.title = title
+            self.symbol = symbol
+            self.visualText = visualText
+            self.isHoldable = hold
+            self.isDarkKey = dark
+        }
+    }
 
     // MARK: - Public flags
 
     var rows: Rows = .single {
         didSet { if rows != oldValue { rebuildLayout() } }
+    }
+    var usesKeyboardDeck: Bool = true {
+        didSet { if usesKeyboardDeck != oldValue { rebuildLayout() } }
     }
     var buttonSize: AccessoryToolbarButtonSize = .medium {
         didSet { if buttonSize != oldValue { rebuildLayout() } }
@@ -33,22 +96,27 @@ final class KeyboardAccessoryView: UIView {
         didSet { rebuildLayout() }
     }
     var readMode: Bool = false {
-        didSet { readButton?.setSymbol(readMode ? "eye" : "eye.slash"); readButton?.isActive = readMode; applyPaletteToButtons() }
+        didSet {
+            readButton?.setSymbol(readMode ? "eye" : "eye.slash")
+            readButton?.isActive = readMode
+            applyPaletteToButtons()
+            applyDeckState()
+        }
     }
     var canUndo: Bool = true {
-        didSet { undoButton?.isDisabled = !canUndo; applyPaletteToButtons() }
+        didSet { undoButton?.isDisabled = !canUndo; applyPaletteToButtons(); applyDeckState() }
     }
     var canRedo: Bool = true {
-        didSet { redoButton?.isDisabled = !canRedo; applyPaletteToButtons() }
+        didSet { redoButton?.isDisabled = !canRedo; applyPaletteToButtons(); applyDeckState() }
     }
     var hasSelection: Bool = false {
-        didSet { cutButton?.isDisabled = !hasSelection; applyPaletteToButtons() }
+        didSet { cutButton?.isDisabled = !hasSelection; applyPaletteToButtons(); applyDeckState() }
     }
     var findActive: Bool = false {
-        didSet { findButton?.isActive = findActive; applyPaletteToButtons() }
+        didSet { findButton?.isActive = findActive; applyPaletteToButtons(); applyDeckState() }
     }
     var compareActive: Bool = false {
-        didSet { compareButton?.isActive = compareActive; applyPaletteToButtons() }
+        didSet { compareButton?.isActive = compareActive; applyPaletteToButtons(); applyDeckState() }
     }
     var shiftActive: Bool = false {
         didSet {
@@ -57,6 +125,7 @@ final class KeyboardAccessoryView: UIView {
             shiftButton?.isActive = shiftActive
             shiftButton?.setSymbol(shiftActive ? "shift.fill" : "shift")
             applyPaletteToButtons()
+            applyDeckState()
         }
     }
 
@@ -75,6 +144,11 @@ final class KeyboardAccessoryView: UIView {
     var onShiftToggle: (() -> Void)?
     var onArrow: ((Arrow) -> Void)?
     var onDelete: (() -> Void)?
+    var onInsertText: ((String) -> Void)?
+    var onMoveHome: (() -> Void)?
+    var onMoveEnd: (() -> Void)?
+    var onPageUp: (() -> Void)?
+    var onPageDown: (() -> Void)?
     var onFind: (() -> Void)?
     var onInsertDate: (() -> Void)?
     var onOpenDocs: (() -> Void)?
@@ -89,6 +163,19 @@ final class KeyboardAccessoryView: UIView {
     private let bottomStack = UIStackView()
     private let topBorder = UIView()
     private let middleBorder = UIView()
+
+    private let deckContainer = UIView()
+    private let deckModifierStack = UIStackView()
+    private let deckBodyStack = UIStackView()
+    private let deckLeftRail = UIStackView()
+    private let deckGrid = UIStackView()
+    private let deckRightRail = UIStackView()
+    private let deckHandle = UIView()
+    private var deckPage: DeckPage = .edit
+    private var deckButtons: [DeckKeyButton] = []
+    private var deckButtonRecords: [(DeckAction, DeckKeyButton)] = []
+    private var deckCtrlActive = false
+    private var deckAltActive = false
 
     // Static "virtual D-pad" cluster pinned to the leading edge. Always
     // visible regardless of accessoryRows, scrolling, or whatever the rest
@@ -134,6 +221,7 @@ final class KeyboardAccessoryView: UIView {
         super.init(frame: frame)
         autoresizingMask = [.flexibleWidth]
         setupBase()
+        setupDeck()
         wireClusterCallbacks()
         rebuildLayout()
     }
@@ -218,6 +306,89 @@ final class KeyboardAccessoryView: UIView {
         updateStaticClusterVisibility()
     }
 
+    private func setupDeck() {
+        deckContainer.translatesAutoresizingMaskIntoConstraints = false
+        deckContainer.layer.masksToBounds = true
+        addSubview(deckContainer)
+
+        deckModifierStack.translatesAutoresizingMaskIntoConstraints = false
+        deckModifierStack.axis = .horizontal
+        deckModifierStack.alignment = .fill
+        deckModifierStack.distribution = .fillEqually
+        deckModifierStack.spacing = 8
+
+        deckBodyStack.translatesAutoresizingMaskIntoConstraints = false
+        deckBodyStack.axis = .horizontal
+        deckBodyStack.alignment = .fill
+        deckBodyStack.distribution = .fill
+        deckBodyStack.spacing = 8
+
+        deckLeftRail.translatesAutoresizingMaskIntoConstraints = false
+        deckLeftRail.axis = .vertical
+        deckLeftRail.alignment = .fill
+        deckLeftRail.distribution = .fillEqually
+        deckLeftRail.spacing = 8
+
+        deckGrid.translatesAutoresizingMaskIntoConstraints = false
+        deckGrid.axis = .vertical
+        deckGrid.alignment = .fill
+        deckGrid.distribution = .fillEqually
+        deckGrid.spacing = 8
+
+        deckRightRail.translatesAutoresizingMaskIntoConstraints = false
+        deckRightRail.axis = .vertical
+        deckRightRail.alignment = .fill
+        deckRightRail.distribution = .fill
+        deckRightRail.spacing = 8
+
+        deckHandle.translatesAutoresizingMaskIntoConstraints = false
+        deckHandle.layer.cornerRadius = 2
+
+        deckContainer.addSubview(deckModifierStack)
+        deckContainer.addSubview(deckBodyStack)
+        deckContainer.addSubview(deckHandle)
+        deckBodyStack.addArrangedSubview(deckLeftRail)
+        deckBodyStack.addArrangedSubview(deckGrid)
+        deckBodyStack.addArrangedSubview(deckRightRail)
+
+        let leftWidth = deckLeftRail.widthAnchor.constraint(equalToConstant: 48)
+        let rightWidth = deckRightRail.widthAnchor.constraint(equalToConstant: 64)
+        leftWidth.priority = .required
+        rightWidth.priority = .required
+
+        NSLayoutConstraint.activate([
+            deckContainer.topAnchor.constraint(equalTo: topAnchor),
+            deckContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            deckContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            deckContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            deckModifierStack.topAnchor.constraint(equalTo: deckContainer.topAnchor, constant: 10),
+            deckModifierStack.leadingAnchor.constraint(equalTo: deckContainer.leadingAnchor, constant: 12),
+            deckModifierStack.trailingAnchor.constraint(equalTo: deckContainer.trailingAnchor, constant: -12),
+            deckModifierStack.heightAnchor.constraint(equalToConstant: 50),
+
+            deckBodyStack.topAnchor.constraint(equalTo: deckModifierStack.bottomAnchor, constant: 10),
+            deckBodyStack.leadingAnchor.constraint(equalTo: deckContainer.leadingAnchor, constant: 12),
+            deckBodyStack.trailingAnchor.constraint(equalTo: deckContainer.trailingAnchor, constant: -12),
+            deckBodyStack.bottomAnchor.constraint(equalTo: deckHandle.topAnchor, constant: -10),
+
+            leftWidth,
+            rightWidth,
+
+            deckHandle.centerXAnchor.constraint(equalTo: deckContainer.centerXAnchor),
+            deckHandle.bottomAnchor.constraint(equalTo: deckContainer.bottomAnchor, constant: -8),
+            deckHandle.widthAnchor.constraint(equalToConstant: 120),
+            deckHandle.heightAnchor.constraint(equalToConstant: 5),
+        ])
+
+        let leftSwipe = UISwipeGestureRecognizer(target: self, action: #selector(nextDeckPageGesture))
+        leftSwipe.direction = .left
+        deckContainer.addGestureRecognizer(leftSwipe)
+        let rightSwipe = UISwipeGestureRecognizer(target: self, action: #selector(previousDeckPageGesture))
+        rightSwipe.direction = .right
+        deckContainer.addGestureRecognizer(rightSwipe)
+    }
+
     private func wireClusterCallbacks() {
         clusterShift.onTap  = { [weak self] in self?.onShiftToggle?() }
         clusterUp.tickHandler     = { [weak self] in self?.onArrow?(.up) }
@@ -265,6 +436,9 @@ final class KeyboardAccessoryView: UIView {
     var preferredHeight: CGFloat { intrinsicContentSize.height }
 
     override var intrinsicContentSize: CGSize {
+        if usesKeyboardDeck {
+            return CGSize(width: UIView.noIntrinsicMetric, height: 318)
+        }
         // The static cluster is two rows tall even when the scrolling toolbar
         // is single-row. Grow for Large buttons so controls do not clip.
         CGSize(width: UIView.noIntrinsicMetric, height: max(88, accessoryRowHeight * 2))
@@ -275,6 +449,13 @@ final class KeyboardAccessoryView: UIView {
     private var activeConstraints: [NSLayoutConstraint] = []
 
     private func rebuildLayout() {
+        if usesKeyboardDeck {
+            installDeckLayout()
+            return
+        }
+
+        deckContainer.isHidden = true
+        topScroll.isHidden = false
         updateStaticClusterVisibility()
         // Tear down existing button subviews / constraints.
         NSLayoutConstraint.deactivate(activeConstraints)
@@ -358,6 +539,288 @@ final class KeyboardAccessoryView: UIView {
         applyPaletteToButtons()
     }
 
+    private func installDeckLayout() {
+        NSLayoutConstraint.deactivate(activeConstraints)
+        activeConstraints.removeAll()
+
+        topScroll.isHidden = true
+        bottomScroll.isHidden = true
+        middleBorder.isHidden = true
+        clusterContainer.isHidden = true
+        clusterDivider.isHidden = true
+        deckContainer.isHidden = false
+
+        clearArrangedSubviews(deckModifierStack)
+        clearArrangedSubviews(deckLeftRail)
+        clearArrangedSubviews(deckGrid)
+        clearArrangedSubviews(deckRightRail)
+        deckButtons.removeAll()
+        deckButtonRecords.removeAll()
+
+        installDeckModifierStrip()
+        installDeckRails()
+        installDeckGrid(page: deckPage)
+
+        invalidateIntrinsicContentSize()
+        applyDeckState()
+    }
+
+    private func clearArrangedSubviews(_ stack: UIStackView) {
+        stack.arrangedSubviews.forEach {
+            stack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+    }
+
+    private func installDeckModifierStrip() {
+        let specs: [DeckKeySpec] = [
+            DeckKeySpec(.openDocuments, title: "Tabs", symbol: "rectangle.on.rectangle"),
+            DeckKeySpec(.hideKeyboard, title: "esc"),
+            DeckKeySpec(.shift, title: "shift"),
+            DeckKeySpec(.ctrl, title: "ctrl"),
+            DeckKeySpec(.alt, title: "alt"),
+            DeckKeySpec(.enter, title: "enter"),
+        ]
+        specs.map(makeDeckButton).forEach { deckModifierStack.addArrangedSubview($0) }
+    }
+
+    private func installDeckRails() {
+        let leftSpecs: [DeckKeySpec] = [
+            DeckKeySpec(.copy, symbol: "doc.on.doc"),
+            DeckKeySpec(.cut, symbol: "scissors"),
+            DeckKeySpec(.paste, symbol: "doc.on.clipboard"),
+            DeckKeySpec(.switchDeck, visualText: deckPageDots()),
+        ]
+        leftSpecs.map(makeDeckButton).forEach { deckLeftRail.addArrangedSubview($0) }
+
+        let backspace = makeDeckButton(DeckKeySpec(.backspace, symbol: "delete.left.fill", hold: true))
+        deckRightRail.addArrangedSubview(backspace)
+        backspace.heightAnchor.constraint(equalToConstant: 58).isActive = true
+
+        let spacer = UIView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        deckRightRail.addArrangedSubview(spacer)
+
+        let enter = makeDeckButton(DeckKeySpec(.enter, title: "Enter"))
+        deckRightRail.addArrangedSubview(enter)
+        enter.heightAnchor.constraint(greaterThanOrEqualToConstant: 108).isActive = true
+    }
+
+    private func installDeckGrid(page: DeckPage) {
+        let rows = deckRows(for: page)
+        for row in rows {
+            let stack = UIStackView()
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            stack.axis = .horizontal
+            stack.alignment = .fill
+            stack.distribution = .fillEqually
+            stack.spacing = 8
+            row.map(makeDeckButton).forEach { stack.addArrangedSubview($0) }
+            deckGrid.addArrangedSubview(stack)
+        }
+    }
+
+    private func deckRows(for page: DeckPage) -> [[DeckKeySpec]] {
+        switch page {
+        case .edit:
+            return [
+                [
+                    DeckKeySpec(.undo, symbol: "arrow.uturn.backward"),
+                    DeckKeySpec(.redo, symbol: "arrow.uturn.forward"),
+                    DeckKeySpec(.find, symbol: "magnifyingglass"),
+                ],
+                [
+                    DeckKeySpec(.selectWord, title: "Word"),
+                    DeckKeySpec(.selectLine, title: "Line"),
+                    DeckKeySpec(.selectAll, title: "All"),
+                ],
+                [
+                    DeckKeySpec(.insertDate, symbol: "clock"),
+                    DeckKeySpec(.openDocuments, symbol: "folder"),
+                    DeckKeySpec(.readMode, symbol: readMode ? "eye" : "eye.slash"),
+                ],
+                [
+                    DeckKeySpec(.compare, symbol: "rectangle.split.1x2"),
+                    DeckKeySpec(.more, symbol: "ellipsis"),
+                    DeckKeySpec(.hideKeyboard, symbol: "keyboard", title: "Hide"),
+                ],
+            ]
+        case .navigation:
+            return [
+                [
+                    DeckKeySpec(.home, title: "Home", hold: true),
+                    DeckKeySpec(.moveUp, symbol: "chevron.up", hold: true),
+                    DeckKeySpec(.pageUp, title: "Pg Up", hold: true),
+                ],
+                [
+                    DeckKeySpec(.end, title: "End", hold: true),
+                    DeckKeySpec(.moveDown, symbol: "chevron.down", hold: true),
+                    DeckKeySpec(.pageDown, title: "Pg Dn", hold: true),
+                ],
+                [
+                    DeckKeySpec(.moveLeft, symbol: "chevron.left", hold: true),
+                    DeckKeySpec(.moveRight, symbol: "chevron.right", hold: true),
+                    DeckKeySpec(.tab, title: "Tab"),
+                ],
+            ]
+        case .numeric:
+            return [
+                [
+                    DeckKeySpec(.insertText("/"), title: "/", dark: true),
+                    DeckKeySpec(.insertText("7"), title: "7", dark: true),
+                    DeckKeySpec(.insertText("8"), title: "8", dark: true),
+                    DeckKeySpec(.insertText("9"), title: "9", dark: true),
+                ],
+                [
+                    DeckKeySpec(.insertText("*"), title: "*", dark: true),
+                    DeckKeySpec(.insertText("4"), title: "4", dark: true),
+                    DeckKeySpec(.insertText("5"), title: "5", dark: true),
+                    DeckKeySpec(.insertText("6"), title: "6", dark: true),
+                ],
+                [
+                    DeckKeySpec(.insertText("-"), title: "-", dark: true),
+                    DeckKeySpec(.insertText("1"), title: "1", dark: true),
+                    DeckKeySpec(.insertText("2"), title: "2", dark: true),
+                    DeckKeySpec(.insertText("3"), title: "3", dark: true),
+                ],
+                [
+                    DeckKeySpec(.insertText("+"), title: "+", dark: true),
+                    DeckKeySpec(.insertText("0"), title: "0", dark: true),
+                    DeckKeySpec(.insertText("."), title: ".", dark: true),
+                    DeckKeySpec(.inert, title: "", dark: true),
+                ],
+            ]
+        }
+    }
+
+    private func makeDeckButton(_ spec: DeckKeySpec) -> DeckKeyButton {
+        let button = DeckKeyButton(
+            title: spec.title,
+            symbol: spec.symbol,
+            visualText: spec.visualText,
+            isHoldable: spec.isHoldable,
+            isDarkKey: spec.isDarkKey
+        ) { [weak self] in
+            self?.performDeckAction(spec.action)
+        }
+        deckButtons.append(button)
+        deckButtonRecords.append((spec.action, button))
+        return button
+    }
+
+    private func performDeckAction(_ action: DeckAction) {
+        guard !isDeckActionDisabled(action) else { return }
+        switch action {
+        case .openDocuments: onOpenDocs?()
+        case .hideKeyboard: onHide?()
+        case .shift: onShiftToggle?()
+        case .ctrl:
+            deckCtrlActive.toggle()
+            applyDeckState()
+        case .alt:
+            deckAltActive.toggle()
+            applyDeckState()
+        case .enter: onInsertText?("\n")
+        case .copy: onCopy?()
+        case .cut: onCut?()
+        case .paste: onPaste?()
+        case .switchDeck: nextDeckPage()
+        case .backspace: onDelete?()
+        case .undo: onUndo?()
+        case .redo: onRedo?()
+        case .find: onFind?()
+        case .selectWord: onSelectWord?()
+        case .selectLine: onSelectLine?()
+        case .selectAll: onSelectAll?()
+        case .insertDate: onInsertDate?()
+        case .readMode: onReadToggle?()
+        case .compare: onCompare?()
+        case .more: onMore?()
+        case .home: onMoveHome?()
+        case .end: onMoveEnd?()
+        case .pageUp: onPageUp?()
+        case .pageDown: onPageDown?()
+        case .moveLeft: onArrow?(.left)
+        case .moveUp: onArrow?(.up)
+        case .moveDown: onArrow?(.down)
+        case .moveRight: onArrow?(.right)
+        case .tab: onInsertText?("\t")
+        case .insertText(let value): onInsertText?(value)
+        case .inert: break
+        }
+    }
+
+    private func isDeckActionDisabled(_ action: DeckAction) -> Bool {
+        switch action {
+        case .cut:
+            return readMode || !hasSelection
+        case .copy:
+            return !hasSelection
+        case .paste, .backspace, .insertDate, .tab, .enter, .insertText(_):
+            return readMode
+        case .undo:
+            return readMode || !canUndo
+        case .redo:
+            return readMode || !canRedo
+        case .inert:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isDeckActionActive(_ action: DeckAction) -> Bool {
+        switch action {
+        case .shift: return shiftActive
+        case .ctrl: return deckCtrlActive
+        case .alt: return deckAltActive
+        case .readMode: return readMode
+        case .find: return findActive
+        case .compare: return compareActive
+        default: return false
+        }
+    }
+
+    private func applyDeckState() {
+        guard usesKeyboardDeck else { return }
+        deckContainer.backgroundColor = UIColor(white: 0.22, alpha: 1)
+        deckHandle.backgroundColor = UIColor(white: 0.76, alpha: 1)
+        topBorder.backgroundColor = UIColor(white: 0.14, alpha: 1)
+        for (action, button) in deckButtonRecords {
+            button.isDisabled = isDeckActionDisabled(action)
+            button.isActive = isDeckActionActive(action)
+            button.applyDeckStyle()
+        }
+    }
+
+    private func deckPageDots() -> String {
+        switch deckPage {
+        case .edit: return "•··"
+        case .navigation: return "·•·"
+        case .numeric: return "··•"
+        }
+    }
+
+    @objc private func nextDeckPageGesture() {
+        nextDeckPage()
+    }
+
+    @objc private func previousDeckPageGesture() {
+        previousDeckPage()
+    }
+
+    private func nextDeckPage() {
+        let nextIndex = (deckPage.rawValue + 1) % DeckPage.allCases.count
+        deckPage = DeckPage(rawValue: nextIndex) ?? .edit
+        installDeckLayout()
+    }
+
+    private func previousDeckPage() {
+        let nextIndex = (deckPage.rawValue + DeckPage.allCases.count - 1) % DeckPage.allCases.count
+        deckPage = DeckPage(rawValue: nextIndex) ?? .edit
+        installDeckLayout()
+    }
+
     private var accessoryRowHeight: CGFloat {
         switch buttonSize {
         case .small: return 40
@@ -395,7 +858,7 @@ final class KeyboardAccessoryView: UIView {
         // keyboard while leaving the document editable, distinct from Read
         // mode which locks the buffer. `isActive` is how KbButton renders
         // "emphasised, palette.primary-tinted."
-        let hide = KbButton(symbol: "keyboard.chevron.compact.down", label: "Hide") { [weak self] in self?.onHide?() }
+        let hide = KbButton(symbol: "keyboard", label: "Hide") { [weak self] in self?.onHide?() }
         hide.isActive = true
         let read = KbButton(symbol: readMode ? "eye" : "eye.slash", label: "Read") { [weak self] in self?.onReadToggle?() }
         read.isActive = readMode
@@ -484,6 +947,7 @@ final class KeyboardAccessoryView: UIView {
         middleBorder.backgroundColor = p.border
         clusterDivider.backgroundColor = p.border
         applyPaletteToButtons()
+        applyDeckState()
     }
 
     private func applyDisplayOptionsToButtons() {
@@ -742,6 +1206,155 @@ private final class KbHoldButton: KbButton {
         holdTimer?.invalidate()
         holdTimer = nil
         repeatCount = 0
+    }
+
+    deinit {
+        stopAllTimers()
+    }
+}
+
+// MARK: - DeckKeyButton
+
+private final class DeckKeyButton: UIControl {
+    var isActive: Bool = false
+    var isDisabled: Bool = false {
+        didSet { isEnabled = !isDisabled }
+    }
+
+    private let action: () -> Void
+    private let isHoldable: Bool
+    private let isDarkKey: Bool
+    private let imageView = UIImageView()
+    private let titleLabel = UILabel()
+    private let stack = UIStackView()
+    private var initialDelayTimer: Timer?
+    private var holdTimer: Timer?
+    private var repeatCount = 0
+
+    init(
+        title: String?,
+        symbol: String?,
+        visualText: String?,
+        isHoldable: Bool,
+        isDarkKey: Bool,
+        action: @escaping () -> Void
+    ) {
+        self.action = action
+        self.isHoldable = isHoldable
+        self.isDarkKey = isDarkKey
+        super.init(frame: .zero)
+
+        translatesAutoresizingMaskIntoConstraints = false
+        layer.cornerRadius = 12
+        layer.borderWidth = 1
+        clipsToBounds = true
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = title ?? visualText ?? symbol ?? "Key"
+
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.distribution = .fill
+        stack.spacing = 2
+        addSubview(stack)
+
+        if let symbol {
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.contentMode = .scaleAspectFit
+            imageView.image = UIImage(
+                systemName: symbol,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
+            )
+            stack.addArrangedSubview(imageView)
+        }
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: visualText == nil ? 19 : 22, weight: .semibold)
+        titleLabel.textAlignment = .center
+        titleLabel.text = visualText ?? title
+        titleLabel.numberOfLines = 1
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.minimumScaleFactor = 0.72
+        if titleLabel.text?.isEmpty == false {
+            stack.addArrangedSubview(titleLabel)
+        }
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -4),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 46),
+        ])
+
+        if isHoldable {
+            addTarget(self, action: #selector(pressDown), for: .touchDown)
+            addTarget(self, action: #selector(pressUp), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
+        } else {
+            addTarget(self, action: #selector(tapped), for: .touchUpInside)
+        }
+        applyDeckStyle()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
+
+    func applyDeckStyle() {
+        let base = isDarkKey ? UIColor(white: 0.07, alpha: 1) : UIColor(white: 0.20, alpha: 1)
+        let active = UIColor(red: 0.23, green: 0.43, blue: 0.70, alpha: 1)
+        let highlighted = UIColor(white: 0.28, alpha: 1)
+        backgroundColor = isActive ? active : (isHighlighted ? highlighted : base)
+        layer.borderColor = UIColor(white: isActive ? 0.48 : 0.27, alpha: 1).cgColor
+        let text = isDisabled ? UIColor(white: 0.62, alpha: 1) : UIColor.white
+        titleLabel.textColor = text
+        imageView.tintColor = text
+        alpha = isDisabled ? 0.38 : 1.0
+    }
+
+    @objc private func tapped() {
+        guard !isDisabled else { return }
+        action()
+    }
+
+    @objc private func pressDown() {
+        guard !isDisabled else { return }
+        action()
+        repeatCount = 0
+        initialDelayTimer?.invalidate()
+        initialDelayTimer = Timer.scheduledTimer(withTimeInterval: 0.380, repeats: false) { [weak self] _ in
+            self?.startRepeating(every: 0.220)
+        }
+    }
+
+    @objc private func pressUp() {
+        stopAllTimers()
+    }
+
+    private func startRepeating(every interval: TimeInterval) {
+        holdTimer?.invalidate()
+        holdTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self, !self.isDisabled else { return }
+            self.action()
+            self.repeatCount += 1
+            if self.repeatCount == 6 && interval > 0.090 {
+                self.startRepeating(every: 0.060)
+            } else if self.repeatCount == 3 && interval > 0.150 {
+                self.startRepeating(every: 0.120)
+            }
+        }
+    }
+
+    private func stopAllTimers() {
+        initialDelayTimer?.invalidate()
+        initialDelayTimer = nil
+        holdTimer?.invalidate()
+        holdTimer = nil
+        repeatCount = 0
+    }
+
+    override var isHighlighted: Bool {
+        didSet { applyDeckStyle() }
     }
 
     deinit {
