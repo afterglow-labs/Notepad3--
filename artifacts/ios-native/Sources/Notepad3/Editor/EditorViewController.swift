@@ -27,10 +27,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private let statusBar = StatusBar()
     private let lineGutter = LineGutter()
 
-    // Keyboard surfaces. The compact accessory rides above the system keyboard;
-    // the command deck becomes a custom input view when Hide/esc suppresses it.
+    // Keyboard accessory — always attached to the text input
     private let keyboardAccessory = KeyboardAccessoryView()
-    private let keyboardCommandDeck = KeyboardAccessoryView()
 
     // Markdown preview — shown in-place when previewMode is on for .markdown docs
     private let markdownPreview = MarkdownPreviewView()
@@ -46,8 +44,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private var readMode = false {
         didSet {
             textView.isEditable = !readMode
-            keyboardSurfaces.forEach { $0.readMode = readMode }
-            if readMode { showCommandDeckInput() }
+            keyboardAccessory.readMode = readMode
             // Read-only has to be visually loud so the user isn't surprised
             // when taps don't register: lock icon in the nav title,
             // destructive-tinted title, muted editor background, and an
@@ -58,7 +55,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
     }
     private var toolbarOpen = true
-    private var commandDeckInputActive = false
 
     // Selection-extension state for the keyboard accessory's Shift toggle.
     // When `shiftAnchor` is non-nil, arrow taps extend the selection from
@@ -69,7 +65,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // Set true around the moveCursor selectedRange assignment so the
     // delegate doesn't treat our own change as a user-driven cancel.
     private var programmaticSelectionChange = false
-    private enum LineBoundary { case start, end }
 
     // Observer tokens
     private var notesToken: UUID?
@@ -88,10 +83,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // Highlighting cache (cheap short-circuit when nothing changed)
     private var lastHighlightedBody: String = ""
     private var lastHighlightedLanguage: NoteLanguage = .plain
-
-    private var keyboardSurfaces: [KeyboardAccessoryView] {
-        [keyboardAccessory, keyboardCommandDeck]
-    }
 
     init(store: NotesStore) {
         self.store = store
@@ -269,8 +260,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         aeroMenuBar.onClose = { [weak self] in guard let self else { return }; self.confirmClose(self.store.activeId) }
         aeroMenuBar.onCloseOthers = { [weak self] in guard let self else { return }; self.store.closeOthers(keep: self.store.activeId) }
 
-        aeroMenuBar.onUndo = { [weak self] in self?.undoTextChange() }
-        aeroMenuBar.onRedo = { [weak self] in self?.redoTextChange() }
+        aeroMenuBar.onUndo = { [weak self] in self?.textView.undoManager?.undo() }
+        aeroMenuBar.onRedo = { [weak self] in self?.textView.undoManager?.redo() }
         aeroMenuBar.onCut = { [weak self] in self?.cutSelection() }
         aeroMenuBar.onCopy = { [weak self] in self?.copySelection() }
         aeroMenuBar.onPaste = { [weak self] in self?.pasteFromClipboard() }
@@ -317,8 +308,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         classicToolbar.onCut = { [weak self] in self?.cutSelection() }
         classicToolbar.onCopy = { [weak self] in self?.copySelection() }
         classicToolbar.onPaste = { [weak self] in self?.pasteFromClipboard() }
-        classicToolbar.onUndo = { [weak self] in self?.undoTextChange() }
-        classicToolbar.onRedo = { [weak self] in self?.redoTextChange() }
+        classicToolbar.onUndo = { [weak self] in self?.textView.undoManager?.undo() }
+        classicToolbar.onRedo = { [weak self] in self?.textView.undoManager?.redo() }
         classicToolbar.onFind = { [weak self] in self?.toggleFind() }
         classicToolbar.onReplace = { [weak self] in self?.toggleFind(showReplace: true) }
         classicToolbar.onTrim = { [weak self] in self?.trimTrailingSpaces() }
@@ -374,33 +365,18 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     private func configureKeyboardAccessory() {
-        configureKeyboardSurface(keyboardAccessory, usesDeck: false) { [weak self] in
-            self?.showCommandDeckInput()
-        }
-        configureKeyboardSurface(keyboardCommandDeck, usesDeck: true) { [weak self] in
-            self?.showSystemKeyboardInput()
-        }
-        textView.inputAccessoryView = keyboardAccessory
-        textView.inputView = nil
-    }
-
-    private func configureKeyboardSurface(
-        _ accessory: KeyboardAccessoryView,
-        usesDeck: Bool,
-        onHide: @escaping () -> Void
-    ) {
+        let accessory = keyboardAccessory
         accessory.autoresizingMask = [.flexibleWidth]
-        accessory.usesKeyboardDeck = usesDeck
         accessory.rows = prefs.accessoryRows == .double ? .double : .single
         accessory.buttonSize = prefs.accessoryToolbarButtonSize
         accessory.accessoryContentMode = prefs.accessoryToolbarContentMode
         accessory.staticButtons = prefs.staticAccessoryButtons
         accessory.hiddenButtons = prefs.hiddenAccessoryButtons
         accessory.frame = CGRect(x: 0, y: 0, width: 320, height: accessory.preferredHeight)
-        accessory.onHide = onHide
+        accessory.onHide = { [weak self] in self?.textView.resignFirstResponder() }
         accessory.onReadToggle = { [weak self] in self?.readMode.toggle() }
-        accessory.onUndo = { [weak self] in self?.undoTextChange() }
-        accessory.onRedo = { [weak self] in self?.redoTextChange() }
+        accessory.onUndo = { [weak self] in self?.textView.undoManager?.undo() }
+        accessory.onRedo = { [weak self] in self?.textView.undoManager?.redo() }
         accessory.onCut = { [weak self] in self?.cutSelection() }
         accessory.onCopy = { [weak self] in self?.copySelection() }
         accessory.onPaste = { [weak self] in self?.pasteFromClipboard() }
@@ -410,42 +386,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         accessory.onArrow = { [weak self] dir in self?.moveCursor(direction: dir) }
         accessory.onShiftToggle = { [weak self] in self?.toggleShift() }
         accessory.onDelete = { [weak self] in self?.deleteBackwardFromCaret() }
-        accessory.onInsertText = { [weak self] text in self?.insertText(text) }
-        accessory.onMoveHome = { [weak self] in self?.moveCursorToLineBoundary(.start) }
-        accessory.onMoveEnd = { [weak self] in self?.moveCursorToLineBoundary(.end) }
-        accessory.onPageUp = { [weak self] in self?.moveCursorByPage(direction: -1) }
-        accessory.onPageDown = { [weak self] in self?.moveCursorByPage(direction: 1) }
         accessory.onFind = { [weak self] in self?.toggleFind() }
         accessory.onInsertDate = { [weak self] in self?.insertText(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short)) }
         accessory.onOpenDocs = { [weak self] in self?.presentDocsList() }
         accessory.onCompare = { [weak self] in self?.presentCompare() }
         accessory.onMore = { [weak self] in self?.presentMobileMore() }
-    }
-
-    private func showCommandDeckInput() {
-        guard !commandDeckInputActive else {
-            textView.becomeFirstResponder()
-            return
-        }
-        commandDeckInputActive = true
-        textView.inputAccessoryView = nil
-        textView.inputView = keyboardCommandDeck
-        keyboardCommandDeck.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: keyboardCommandDeck.preferredHeight)
-        textView.reloadInputViews()
-        textView.becomeFirstResponder()
-    }
-
-    private func showSystemKeyboardInput() {
-        guard commandDeckInputActive else {
-            textView.becomeFirstResponder()
-            return
-        }
-        commandDeckInputActive = false
-        textView.inputView = nil
-        textView.inputAccessoryView = keyboardAccessory
-        keyboardAccessory.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: keyboardAccessory.preferredHeight)
-        textView.reloadInputViews()
-        textView.becomeFirstResponder()
+        textView.inputAccessoryView = accessory
     }
 
     // MARK: - Constraint stacks
@@ -766,7 +712,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         classicTitleBar.applyPalette(palette)
         statusBar.applyPalette(palette)
         lineGutter.applyPalette(palette)
-        keyboardSurfaces.forEach { $0.applyPalette(palette) }
+        keyboardAccessory.applyPalette(palette)
         pointerOverlay.applyPalette(palette)
 
         let nav = UINavigationBarAppearance()
@@ -799,14 +745,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         classicToolbar.setRows(prefs.toolbarRows == .double ? 2 : 1)
         classicToolbar.isHidden = (prefs.layoutMode == .classic) ? !toolbarOpen : true
         // Keyboard accessory rows and toolbar customization
-        keyboardSurfaces.forEach {
-            $0.rows = prefs.accessoryRows == .double ? .double : .single
-            $0.buttonSize = prefs.accessoryToolbarButtonSize
-            $0.accessoryContentMode = prefs.accessoryToolbarContentMode
-            $0.staticButtons = prefs.staticAccessoryButtons
-            $0.hiddenButtons = prefs.hiddenAccessoryButtons
-            $0.frame.size.height = $0.preferredHeight
-        }
+        keyboardAccessory.rows = prefs.accessoryRows == .double ? .double : .single
+        keyboardAccessory.buttonSize = prefs.accessoryToolbarButtonSize
+        keyboardAccessory.accessoryContentMode = prefs.accessoryToolbarContentMode
+        keyboardAccessory.staticButtons = prefs.staticAccessoryButtons
+        keyboardAccessory.hiddenButtons = prefs.hiddenAccessoryButtons
+        keyboardAccessory.frame.size.height = keyboardAccessory.preferredHeight
         textView.reloadInputViews()
         // Custom palette may have changed
         applyPalette()
@@ -880,10 +824,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         store.updateActive(body: textView.text)
         rehighlight()
         if previewMode { markdownPreview.setMarkdown(textView.text ?? "") }
-        keyboardSurfaces.forEach {
-            $0.canUndo = textView.undoManager?.canUndo ?? false
-            $0.canRedo = textView.undoManager?.canRedo ?? false
-        }
+        keyboardAccessory.canUndo = textView.undoManager?.canUndo ?? false
+        keyboardAccessory.canRedo = textView.undoManager?.canRedo ?? false
         refreshStatusBar()
     }
 
@@ -894,9 +836,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         // the in-progress range.
         if shiftAnchor != nil && !programmaticSelectionChange {
             shiftAnchor = nil
-            keyboardSurfaces.forEach { $0.shiftActive = false }
+            keyboardAccessory.shiftActive = false
         }
-        keyboardSurfaces.forEach { $0.hasSelection = textView.selectedRange.length > 0 }
+        keyboardAccessory.hasSelection = textView.selectedRange.length > 0
         refreshStatusBar()
     }
 
@@ -919,7 +861,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             findBar.findField.resignFirstResponder()
             findBar.replaceField.resignFirstResponder()
         }
-        keyboardSurfaces.forEach { $0.findActive = visible && !findBar.showsReplace }
+        keyboardAccessory.findActive = visible && !findBar.showsReplace
     }
 
     private func findNext(backwards: Bool) {
@@ -1002,27 +944,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         commitReplacement(updated, selectionAfter: NSRange(location: 0, length: 0), actionName: "Replace All")
     }
 
-    private func canMutateText() -> Bool {
-        guard !readMode else {
-            Haptics.warning()
-            return false
-        }
-        return true
-    }
-
-    private func undoTextChange() {
-        guard canMutateText() else { return }
-        textView.undoManager?.undo()
-    }
-
-    private func redoTextChange() {
-        guard canMutateText() else { return }
-        textView.undoManager?.redo()
-    }
-
     private func commitReplacement(_ newBody: String, selectionAfter: NSRange, actionName: String? = nil) {
-        guard canMutateText() else { return }
-
         let oldBody = textView.text ?? ""
         let oldSelection = textView.selectedRange
 
@@ -1106,7 +1028,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // MARK: - Clipboard / selection helpers
 
     private func cutSelection() {
-        guard canMutateText() else { return }
         let sel = textView.selectedRange
         guard sel.length > 0 else { return }
         let ns = (textView.text ?? "") as NSString
@@ -1125,7 +1046,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     private func pasteFromClipboard() {
-        guard canMutateText() else { return }
         guard let value = UIPasteboard.general.string, !value.isEmpty else { return }
         insertText(value)
         Haptics.impact(.light)
@@ -1150,7 +1070,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     private func deleteBackwardFromCaret() {
-        guard canMutateText() else { return }
         // Empty selection: delete the character before the caret.
         // Non-empty selection: delete the selected range.
         let r = textView.selectedRange
@@ -1167,17 +1086,25 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private func toggleShift() {
         if shiftAnchor == nil {
             shiftAnchor = textView.selectedRange.location
-            keyboardSurfaces.forEach { $0.shiftActive = true }
+            keyboardAccessory.shiftActive = true
         } else {
             shiftAnchor = nil
-            keyboardSurfaces.forEach { $0.shiftActive = false }
+            keyboardAccessory.shiftActive = false
         }
     }
 
     private func moveCursor(direction: KeyboardAccessoryView.Arrow) {
         let ns = (textView.text ?? "") as NSString
 
-        let movingEnd = accessoryMovingEnd()
+        // The "moving end" of the selection: the side opposite the anchor
+        // when shift is active, or just the caret otherwise.
+        let movingEnd: Int
+        if let anchor = shiftAnchor {
+            let r = textView.selectedRange
+            movingEnd = (r.location == anchor) ? r.location + r.length : r.location
+        } else {
+            movingEnd = textView.selectedRange.location
+        }
 
         let newCaret: Int
         switch direction {
@@ -1187,48 +1114,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         case .down:  newCaret = caretVerticallyMoved(in: ns, from: movingEnd, direction: 1)
         }
 
-        applyAccessoryCaret(newCaret)
-    }
-
-    private func accessoryMovingEnd() -> Int {
-        if let anchor = shiftAnchor {
-            let r = textView.selectedRange
-            return (r.location == anchor) ? r.location + r.length : r.location
-        }
-        return textView.selectedRange.location
-    }
-
-    private func applyAccessoryCaret(_ newCaret: Int) {
-        let length = ((textView.text ?? "") as NSString).length
-        let clamped = max(0, min(newCaret, length))
         programmaticSelectionChange = true
         if let anchor = shiftAnchor {
-            let lo = min(anchor, clamped)
-            let hi = max(anchor, clamped)
+            let lo = min(anchor, newCaret)
+            let hi = max(anchor, newCaret)
             textView.selectedRange = NSRange(location: lo, length: hi - lo)
         } else {
-            textView.selectedRange = NSRange(location: clamped, length: 0)
+            textView.selectedRange = NSRange(location: newCaret, length: 0)
         }
-        textView.scrollRangeToVisible(NSRange(location: clamped, length: 0))
         programmaticSelectionChange = false
-    }
-
-    private func moveCursorToLineBoundary(_ boundary: LineBoundary) {
-        let ns = (textView.text ?? "") as NSString
-        let caret = accessoryMovingEnd()
-        let (start, end) = lineRange(in: ns, at: caret)
-        applyAccessoryCaret(boundary == .start ? start : end)
-    }
-
-    private func moveCursorByPage(direction: Int) {
-        let ns = (textView.text ?? "") as NSString
-        guard ns.length > 0 else { return }
-        var caret = accessoryMovingEnd()
-        let linesPerPage = max(8, Int((textView.bounds.height / max(textView.font?.lineHeight ?? 18, 1)).rounded(.down)) - 2)
-        for _ in 0..<linesPerPage {
-            caret = caretVerticallyMoved(in: ns, from: caret, direction: direction < 0 ? -1 : 1)
-        }
-        applyAccessoryCaret(caret)
     }
 
     private func caretVerticallyMoved(in ns: NSString, from caret: Int, direction: Int) -> Int {
@@ -1425,8 +1319,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                 },
             ]),
             SheetSection(title: "Edit", rows: [
-                SheetRow(icon: "arrow.uturn.backward", title: "Undo") { [weak self] in self?.undoTextChange() },
-                SheetRow(icon: "arrow.uturn.forward", title: "Redo") { [weak self] in self?.redoTextChange() },
+                SheetRow(icon: "arrow.uturn.backward", title: "Undo") { [weak self] in self?.textView.undoManager?.undo() },
+                SheetRow(icon: "arrow.uturn.forward", title: "Redo") { [weak self] in self?.textView.undoManager?.redo() },
                 SheetRow(icon: "scissors", title: "Cut") { [weak self] in self?.cutSelection() },
                 SheetRow(icon: "doc.on.doc", title: "Copy") { [weak self] in self?.copySelection() },
                 SheetRow(icon: "doc.on.clipboard", title: "Paste") { [weak self] in self?.pasteFromClipboard() },
