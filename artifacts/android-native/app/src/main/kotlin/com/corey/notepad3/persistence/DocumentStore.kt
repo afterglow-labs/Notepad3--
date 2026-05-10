@@ -20,6 +20,9 @@ class DocumentStore(
     private val file: File,
     private val starterContent: StarterContent = StarterContent.WELCOME,
 ) {
+    private val persistLock = Any()
+    private var pendingPersistSnapshot: DocumentSnapshot? = null
+
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
@@ -41,8 +44,29 @@ class DocumentStore(
         title: String? = null,
         body: String? = null,
         language: DocumentLanguage? = null,
+        persistImmediately: Boolean = true,
     ) {
-        updateDocument(activeDocument.id, title = title, body = body, language = language)
+        updateDocument(
+            activeDocument.id,
+            title = title,
+            body = body,
+            language = language,
+            persistImmediately = persistImmediately,
+        )
+    }
+
+    fun updateActiveDraft(body: String) {
+        updateActive(body = body, persistImmediately = false)
+    }
+
+    fun flushPendingChanges() {
+        synchronized(persistLock) {
+            val snapshot = pendingPersistSnapshot ?: return
+            persist(snapshot)
+            if (pendingPersistSnapshot == snapshot) {
+                pendingPersistSnapshot = null
+            }
+        }
     }
 
     fun updateDocument(
@@ -50,6 +74,7 @@ class DocumentStore(
         title: String? = null,
         body: String? = null,
         language: DocumentLanguage? = null,
+        persistImmediately: Boolean = true,
     ) {
         val snapshot = _state.value
         val index = snapshot.documents.indexOfFirst { it.id == id }
@@ -64,7 +89,7 @@ class DocumentStore(
             language = language ?: title?.let { DocumentLanguage.detect(nextTitle) } ?: current.language,
             updatedAt = Instant.now(),
         )
-        mutate { it.copy(documents = nextDocuments) }
+        mutate(persistImmediately = persistImmediately) { it.copy(documents = nextDocuments) }
     }
 
     fun createBlank(): TextDocument {
@@ -135,10 +160,22 @@ class DocumentStore(
         mutate { DocumentSnapshot(documents = listOf(document), activeId = document.id) }
     }
 
-    private fun mutate(block: (DocumentSnapshot) -> DocumentSnapshot) {
+    private fun mutate(
+        persistImmediately: Boolean = true,
+        block: (DocumentSnapshot) -> DocumentSnapshot,
+    ) {
         val next = block(_state.value)
         _state.value = next
-        persist(next)
+        if (persistImmediately) {
+            synchronized(persistLock) {
+                pendingPersistSnapshot = null
+                persist(next)
+            }
+        } else {
+            synchronized(persistLock) {
+                pendingPersistSnapshot = next
+            }
+        }
     }
 
     private fun loadSnapshot(): DocumentSnapshot {

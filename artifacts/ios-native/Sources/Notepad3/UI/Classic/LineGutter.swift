@@ -11,9 +11,20 @@ final class LineGutter: UIView {
     private weak var textView: UITextView?
     private var textObservation: NSObjectProtocol?
     private var contentOffsetObservation: NSKeyValueObservation?
-    private var textContainerObservation: NSObjectProtocol?
     private var palette: Palette = .classic
     private var font: UIFont = .monospacedSystemFont(ofSize: 16, weight: .regular)
+    private var cachedText = ""
+    private var lineStarts: [Int] = [0]
+    private var cacheNeedsRebuild = true
+
+    override var isHidden: Bool {
+        didSet {
+            if !isHidden, cacheNeedsRebuild {
+                rebuildLineCache()
+                setNeedsDisplay()
+            }
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -56,16 +67,26 @@ final class LineGutter: UIView {
         self.textView = textView
         // Match the gutter font to the editor so line heights align.
         if let f = textView.font { self.font = f }
+        rebuildLineCache()
 
         textObservation = NotificationCenter.default.addObserver(
             forName: UITextView.textDidChangeNotification,
             object: textView,
             queue: .main
-        ) { [weak self] _ in self?.setNeedsDisplay() }
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.cacheNeedsRebuild = true
+            guard !self.isHidden else { return }
+            self.rebuildLineCache()
+            self.setNeedsDisplay()
+        }
 
         contentOffsetObservation = textView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
             // Coalesce to the main queue so we don't stall scroll.
-            DispatchQueue.main.async { self?.setNeedsDisplay() }
+            DispatchQueue.main.async {
+                guard let self, !self.isHidden else { return }
+                self.setNeedsDisplay()
+            }
         }
 
         setNeedsDisplay()
@@ -82,6 +103,7 @@ final class LineGutter: UIView {
     override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
         guard let textView = textView else { return }
+        if cacheNeedsRebuild { rebuildLineCache() }
 
         // Right border to echo the RN `borderRight` on the gutter.
         ctx.setFillColor(palette.border.cgColor)
@@ -92,9 +114,7 @@ final class LineGutter: UIView {
 
         let layoutManager = textView.layoutManager
         let textContainer = textView.textContainer
-        let text = textView.text ?? ""
-        let nsText = text as NSString
-        let storage = textView.textStorage
+        let nsText = cachedText as NSString
 
         let lineHeight = font.lineHeight
         let baselineOffset: CGFloat = textView.textContainerInset.top - textView.contentOffset.y
@@ -113,18 +133,26 @@ final class LineGutter: UIView {
 
         // Enumerate line fragments to handle wrapped lines: the gutter only
         // labels the *first* visual line of each logical line.
-        var lineNumber = 0
         var lastLineStart = -1
-        layoutManager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layoutManager.numberOfGlyphs)) { [weak self] _, usedRect, _, glyphRange, _ in
+        let visibleGlyphRange = layoutManager.glyphRange(
+            forBoundingRect: CGRect(
+                x: textView.contentOffset.x,
+                y: max(0, textView.contentOffset.y - textView.textContainerInset.top),
+                width: textView.bounds.width,
+                height: textView.bounds.height
+            ),
+            in: textContainer
+        )
+        layoutManager.enumerateLineFragments(forGlyphRange: visibleGlyphRange) { [weak self] _, usedRect, _, glyphRange, _ in
             guard let self = self else { return }
             let charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-            let lineStartInStorage = (storage.string as NSString).lineRange(for: NSRange(location: charRange.location, length: 0)).location
+            let lineStartInStorage = nsText.lineRange(for: NSRange(location: charRange.location, length: 0)).location
 
             if lineStartInStorage != lastLineStart {
-                lineNumber += 1
                 lastLineStart = lineStartInStorage
+                let lineNumber = self.lineNumber(at: lineStartInStorage)
 
-                let y = usedRect.minY + self.textView!.textContainerInset.top - self.textView!.contentOffset.y
+                let y = usedRect.minY + textView.textContainerInset.top - textView.contentOffset.y
                 // Skip frames that are entirely above/below the visible area.
                 if y + usedRect.height < 0 || y > self.bounds.height { return }
                 let rect = CGRect(x: 0, y: y, width: self.bounds.width - 6, height: usedRect.height)
@@ -143,9 +171,36 @@ final class LineGutter: UIView {
             }
             if extraY + lineHeight > 0, extraY < bounds.height {
                 let rect = CGRect(x: 0, y: extraY, width: bounds.width - 6, height: lineHeight)
-                ("\(lineNumber + 1)" as NSString).draw(in: rect, withAttributes: attrs)
+                ("\(lineStarts.count)" as NSString).draw(in: rect, withAttributes: attrs)
             }
         }
+    }
+
+    private func rebuildLineCache() {
+        cachedText = textView?.text ?? ""
+        let nsText = cachedText as NSString
+        var starts = [0]
+        if nsText.length > 0 {
+            for index in 0..<nsText.length where nsText.character(at: index) == 0x0A {
+                starts.append(index + 1)
+            }
+        }
+        lineStarts = starts
+        cacheNeedsRebuild = false
+    }
+
+    private func lineNumber(at offset: Int) -> Int {
+        var low = 0
+        var high = lineStarts.count
+        while low < high {
+            let mid = (low + high) / 2
+            if lineStarts[mid] <= offset {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return max(1, low)
     }
 
     private func lastLineFragmentRect(in layoutManager: NSLayoutManager, container: NSTextContainer) -> CGRect? {

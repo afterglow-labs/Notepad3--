@@ -28,6 +28,34 @@ object DocumentExport {
             title.endsWith(".swift") || document.language == DocumentLanguage.SWIFT -> "text/x-swift"
             title.endsWithAny(".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx") ||
                 document.language == DocumentLanguage.C_PLUS_PLUS -> "text/x-c++src"
+            title.endsWith(".java") || document.language == DocumentLanguage.JAVA -> "text/x-java-source"
+            title.endsWithAny(".cs", ".csx") || document.language == DocumentLanguage.C_SHARP -> "text/x-csharp"
+            title.endsWith(".go") || document.language == DocumentLanguage.GO -> "text/x-go"
+            title.endsWith(".rs") || document.language == DocumentLanguage.RUST -> "text/rust"
+            title.endsWith(".dart") || document.language == DocumentLanguage.DART -> "text/x-dart"
+            title.endsWithAny(".php", ".phtml") || document.language == DocumentLanguage.PHP -> "application/x-httpd-php"
+            title.endsWithAny(".rb", ".rake", ".gemspec") || title == "gemfile" ||
+                document.language == DocumentLanguage.RUBY -> "text/x-ruby"
+            title.endsWithAny(".sh", ".bash", ".zsh", ".fish", ".ksh") ||
+                title == ".bashrc" ||
+                title == ".zshrc" ||
+                title == ".profile" ||
+                document.language == DocumentLanguage.SHELL -> "application/x-sh"
+            title.endsWithAny(".ps1", ".psm1", ".psd1") ||
+                document.language == DocumentLanguage.POWERSHELL -> "text/x-powershell"
+            title.endsWith(".sql") || document.language == DocumentLanguage.SQL -> "application/sql"
+            title.endsWithAny(".yml", ".yaml") || document.language == DocumentLanguage.YAML -> "application/yaml"
+            title.endsWith(".toml") || document.language == DocumentLanguage.TOML -> "application/toml"
+            title.endsWithAny(".ini", ".cfg", ".conf") ||
+                title == ".editorconfig" ||
+                title == ".gitconfig" ||
+                document.language == DocumentLanguage.INI -> "text/plain"
+            title == "dockerfile" ||
+                title == "containerfile" ||
+                title.startsWith("dockerfile.") ||
+                title.startsWith("containerfile.") ||
+                title.endsWith(".dockerfile") ||
+                document.language == DocumentLanguage.DOCKERFILE -> "text/x-dockerfile"
             title.endsWithAny(".html", ".htm") || document.language == DocumentLanguage.HTML -> "text/html"
             title.endsWith(".css") || document.language == DocumentLanguage.CSS -> "text/css"
             title.endsWithAny(".xml", ".svg") ||

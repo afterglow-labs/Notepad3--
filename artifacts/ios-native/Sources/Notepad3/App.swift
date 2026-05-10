@@ -6,6 +6,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    func applicationWillTerminate(_ application: UIApplication) {
+        NotesStore.shared.flushPendingPersistence()
+    }
+
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
@@ -29,5 +33,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = nav
         window.makeKeyAndVisible()
         self.window = window
+    }
+
+    func sceneWillResignActive(_ scene: UIScene) {
+        NotesStore.shared.flushPendingPersistence()
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        NotesStore.shared.flushPendingPersistence()
     }
 }

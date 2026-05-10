@@ -32,4 +32,24 @@ object EditorGutter {
         }
         return line
     }
+
+    fun logicalLineNumbersAtSortedOffsets(
+        body: String,
+        offsets: List<Int>,
+    ): List<Int> {
+        val lineNumbers = ArrayList<Int>(offsets.size)
+        var line = 1
+        var scanIndex = 0
+
+        offsets.forEach { rawOffset ->
+            val offset = rawOffset.coerceIn(0, body.length)
+            while (scanIndex < offset) {
+                if (body[scanIndex] == '\n') line += 1
+                scanIndex += 1
+            }
+            lineNumbers += line
+        }
+
+        return lineNumbers
+    }
 }

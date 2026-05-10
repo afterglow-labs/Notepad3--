@@ -10,9 +10,14 @@ final class NotesStore {
     private(set) var activeId: String
 
     private let url: URL
+    private let persistenceQueue = DispatchQueue(label: "notepad3.notes.persistence", qos: .utility)
+    private let draftPersistDelay: TimeInterval
+    private var pendingPersist: DispatchWorkItem?
+    private var hasPendingChanges = false
     private var observers: [UUID: () -> Void] = [:]
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, draftPersistDelay: TimeInterval = 0.45) {
+        self.draftPersistDelay = draftPersistDelay
         let docs = (try? fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         self.url = docs.appendingPathComponent("notes-v1.json")
@@ -49,17 +54,61 @@ final class NotesStore {
         for block in observers.values { block() }
     }
 
-    private func persist() {
-        let snap = Snapshot(notes: notes, activeId: activeId)
+    private func persist(_ snap: Snapshot) {
         if let data = try? JSONEncoder.iso.encode(snap) {
             try? data.write(to: url, options: .atomic)
         }
     }
 
-    private func mutate(_ block: () -> Void) {
+    private func persistNow() {
+        pendingPersist?.cancel()
+        pendingPersist = nil
+        let snap = Snapshot(notes: notes, activeId: activeId)
+        persistenceQueue.sync { persist(snap) }
+        hasPendingChanges = false
+    }
+
+    private func scheduleDraftPersist() {
+        pendingPersist?.cancel()
+        let snap = Snapshot(notes: notes, activeId: activeId)
+        hasPendingChanges = true
+        var item: DispatchWorkItem?
+        item = DispatchWorkItem { [weak self, weak item] in
+            guard let self, item?.isCancelled == false else { return }
+            self.persist(snap)
+            DispatchQueue.main.async { [weak self, weak item] in
+                guard let self, let item, self.pendingPersist === item else { return }
+                self.pendingPersist = nil
+                self.hasPendingChanges = false
+            }
+        }
+        pendingPersist = item
+        persistenceQueue.asyncAfter(deadline: .now() + draftPersistDelay, execute: item!)
+    }
+
+    func flushPendingPersistence() {
+        guard hasPendingChanges || pendingPersist != nil else { return }
+        pendingPersist?.cancel()
+        pendingPersist = nil
+        let snap = Snapshot(notes: notes, activeId: activeId)
+        persistenceQueue.sync { persist(snap) }
+        hasPendingChanges = false
+    }
+
+    private func mutate(
+        persistImmediately: Bool = true,
+        notifyObservers: Bool = true,
+        _ block: () -> Void
+    ) {
         block()
-        persist()
-        notify()
+        if persistImmediately {
+            persistNow()
+        } else {
+            scheduleDraftPersist()
+        }
+        if notifyObservers {
+            notify()
+        }
     }
 
     func setActive(_ id: String) {
@@ -68,13 +117,27 @@ final class NotesStore {
     }
 
     func updateActive(title: String? = nil, body: String? = nil, language: NoteLanguage? = nil) {
+        updateActive(title: title, body: body, language: language, persistImmediately: true, notifyObservers: true)
+    }
+
+    func updateActiveDraft(body: String) {
+        updateActive(title: nil, body: body, language: nil, persistImmediately: false, notifyObservers: false)
+    }
+
+    private func updateActive(
+        title: String? = nil,
+        body: String? = nil,
+        language: NoteLanguage? = nil,
+        persistImmediately: Bool,
+        notifyObservers: Bool
+    ) {
         guard let idx = notes.firstIndex(where: { $0.id == activeId }) else { return }
         var n = notes[idx]
         if let title { n.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "untitled.txt" : title }
         if let body { n.body = body }
         if let language { n.language = language }
         n.updatedAt = Date()
-        mutate { notes[idx] = n }
+        mutate(persistImmediately: persistImmediately, notifyObservers: notifyObservers) { notes[idx] = n }
     }
 
     @discardableResult

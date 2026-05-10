@@ -45,6 +45,22 @@ class DocumentStoreTest {
     }
 
     @Test
+    fun draftBodyUpdatesAreVisibleImmediatelyButPersistOnlyWhenFlushed() {
+        val file = Files.createTempDirectory("np3").resolve("documents-v1.json").toFile()
+        val store = DocumentStore(file)
+        store.updateActive(body = "saved")
+
+        store.updateActiveDraft(body = "typing")
+
+        assertEquals("typing", store.activeDocument.body)
+        assertEquals("saved", DocumentStore(file).activeDocument.body)
+
+        store.flushPendingChanges()
+
+        assertEquals("typing", DocumentStore(file).activeDocument.body)
+    }
+
+    @Test
     fun importsDocumentsAndDetectsTheirLanguage() {
         val store = DocumentStore(Files.createTempDirectory("np3").resolve("documents-v1.json").toFile())
 

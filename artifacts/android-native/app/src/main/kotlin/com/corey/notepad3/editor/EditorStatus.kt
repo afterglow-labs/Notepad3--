@@ -7,28 +7,45 @@ object EditorStatus {
         selection: TextSelection,
         readOnly: Boolean,
     ): String {
-        val lineColumn = body.lineColumn(selection.min)
+        val metrics = body.statusMetrics(selection.min)
         val modeSummary = if (readOnly) " | Read Only" else ""
         val selectionLength = selection.max - selection.min
         val selectionSummary = if (selectionLength > 0) " | Sel $selectionLength chars" else ""
-        return "$languageName$modeSummary | ${body.lines().size} lines | ${body.length} chars | " +
-            "Ln ${lineColumn.first}, Col ${lineColumn.second}$selectionSummary"
+        return "$languageName$modeSummary | ${metrics.lineCount} lines | ${body.length} chars | " +
+            "Ln ${metrics.line}, Col ${metrics.column}$selectionSummary"
     }
 }
 
-private fun String.lineColumn(caret: Int): Pair<Int, Int> {
-    val clamped = caret.coerceIn(0, length)
-    var line = 1
-    var column = 1
+private data class StatusMetrics(
+    val lineCount: Int,
+    val line: Int,
+    val column: Int,
+)
 
-    for (index in 0 until clamped) {
+private fun String.statusMetrics(caret: Int): StatusMetrics {
+    val clamped = caret.coerceIn(0, length)
+    var lineCount = 1
+    var caretLine = 1
+    var caretColumn = 1
+
+    for (index in indices) {
         if (this[index] == '\n') {
-            line += 1
-            column = 1
-        } else {
-            column += 1
+            lineCount += 1
+        }
+
+        if (index < clamped) {
+            if (this[index] == '\n') {
+                caretLine += 1
+                caretColumn = 1
+            } else {
+                caretColumn += 1
+            }
         }
     }
 
-    return line to column
+    return StatusMetrics(
+        lineCount = lineCount,
+        line = caretLine,
+        column = caretColumn,
+    )
 }

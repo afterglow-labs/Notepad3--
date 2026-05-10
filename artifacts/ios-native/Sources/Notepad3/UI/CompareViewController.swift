@@ -28,6 +28,8 @@ final class CompareViewController: UIViewController, UITextViewDelegate {
     private var comparableNotes: [Note] = []
     private var bottomNoteId: String?
     private var isSyncing = false
+    private let diffQueue = DispatchQueue(label: "notepad3.compare.diff", qos: .userInitiated)
+    private var reloadGeneration = 0
 
     // Muted yellow used for both panes on `changed` lines. 25% alpha so the
     // text stays readable over the editor background.
@@ -183,16 +185,26 @@ final class CompareViewController: UIViewController, UITextViewDelegate {
     }
 
     private func reloadContent() {
+        reloadGeneration += 1
+        let generation = reloadGeneration
         let topBody = store.activeNote.body
         let bottomNote = bottomNoteId.flatMap { id in comparableNotes.first(where: { $0.id == id }) }
 
         if let bottom = bottomNote {
-            let diff = Diff.compute(top: topBody, bottom: bottom.body)
-            topTextView.attributedText = makeAttributedBody(lines: diff.topLines, statuses: diff.topStatuses, pane: .top)
-            bottomTextView.attributedText = makeAttributedBody(lines: diff.bottomLines, statuses: diff.bottomStatuses, pane: .bottom)
-            summaryLabel.text = Self.formatSummary(diff.summary)
+            topTextView.attributedText = makePlainBody(topBody)
+            bottomTextView.attributedText = makePlainBody(bottom.body)
+            summaryLabel.text = "Comparing..."
             bottomTextView.isHidden = false
             emptyLabel.isHidden = true
+            diffQueue.async { [weak self] in
+                let diff = Diff.compute(top: topBody, bottom: bottom.body)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.reloadGeneration == generation else { return }
+                    self.topTextView.attributedText = self.makeAttributedBody(lines: diff.topLines, statuses: diff.topStatuses, pane: .top)
+                    self.bottomTextView.attributedText = self.makeAttributedBody(lines: diff.bottomLines, statuses: diff.bottomStatuses, pane: .bottom)
+                    self.summaryLabel.text = Self.formatSummary(diff.summary)
+                }
+            }
         } else {
             // No comparison target: show just the active body, no highlighting.
             topTextView.attributedText = makeAttributedBody(
@@ -238,6 +250,13 @@ final class CompareViewController: UIViewController, UITextViewDelegate {
             cursor += rangeLength
         }
         return attr
+    }
+
+    private func makePlainBody(_ body: String) -> NSAttributedString {
+        NSAttributedString(string: body, attributes: [
+            .font: UIFont.monospacedSystemFont(ofSize: 14, weight: .regular),
+            .foregroundColor: palette.foreground,
+        ])
     }
 
     private func background(for status: Diff.Status, pane: Pane) -> UIColor? {
@@ -320,6 +339,7 @@ final class CompareViewController: UIViewController, UITextViewDelegate {
 /// at "a few thousand lines" worst case. Short-circuits on empty input.
 enum Diff {
     enum Status { case unchanged, added, removed, changed }
+    private static let maxLcsCells = 2_000_000
 
     struct Summary {
         let unchanged: Int
@@ -340,6 +360,10 @@ enum Diff {
     static func compute(top: String, bottom: String) -> Result {
         let topLines = top.components(separatedBy: "\n")
         let bottomLines = bottom.components(separatedBy: "\n")
+        if topLines.count > 0,
+           bottomLines.count > maxLcsCells / topLines.count {
+            return positionalDiff(topLines: topLines, bottomLines: bottomLines)
+        }
 
         let ops = lcsOps(a: topLines, b: bottomLines)
         let reconciled = reconcileChanges(ops: ops, a: topLines, b: bottomLines)
@@ -381,6 +405,57 @@ enum Diff {
         let denom = max(topLines.count, bottomLines.count)
         let percent: Int = denom == 0 ? 100 : Int((Double(unchanged) / Double(denom)) * 100.0)
 
+        return Result(
+            topLines: topLines,
+            bottomLines: bottomLines,
+            topStatuses: topStatuses,
+            bottomStatuses: bottomStatuses,
+            summary: Summary(
+                unchanged: unchanged,
+                added: added,
+                removed: removed,
+                changed: changed,
+                percentSimilar: percent
+            )
+        )
+    }
+
+    private static func positionalDiff(topLines: [String], bottomLines: [String]) -> Result {
+        let lineCount = max(topLines.count, bottomLines.count)
+        var topStatuses: [Diff.Status] = []
+        var bottomStatuses: [Diff.Status] = []
+        topStatuses.reserveCapacity(topLines.count)
+        bottomStatuses.reserveCapacity(bottomLines.count)
+
+        var unchanged = 0
+        var added = 0
+        var removed = 0
+        var changed = 0
+
+        for index in 0..<lineCount {
+            let hasTop = index < topLines.count
+            let hasBottom = index < bottomLines.count
+
+            if hasTop && hasBottom {
+                if topLines[index] == bottomLines[index] {
+                    topStatuses.append(.unchanged)
+                    bottomStatuses.append(.unchanged)
+                    unchanged += 1
+                } else {
+                    topStatuses.append(.changed)
+                    bottomStatuses.append(.changed)
+                    changed += 1
+                }
+            } else if hasTop {
+                topStatuses.append(.removed)
+                removed += 1
+            } else if hasBottom {
+                bottomStatuses.append(.added)
+                added += 1
+            }
+        }
+
+        let percent = lineCount == 0 ? 100 : Int((Double(unchanged) / Double(lineCount)) * 100.0)
         return Result(
             topLines: topLines,
             bottomLines: bottomLines,

@@ -83,6 +83,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // Highlighting cache (cheap short-circuit when nothing changed)
     private var lastHighlightedBody: String = ""
     private var lastHighlightedLanguage: NoteLanguage = .plain
+    private var pendingHighlight: DispatchWorkItem?
+    private var highlightGeneration = 0
 
     init(store: NotesStore) {
         self.store = store
@@ -145,6 +147,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     deinit {
+        pendingHighlight?.cancel()
+        store.flushPendingPersistence()
         if let t = notesToken { store.unobserve(t) }
         if let t = themeToken { themes.unobserve(t) }
         if let t = prefsToken { prefs.unobserve(t) }
@@ -778,13 +782,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         guard prefs.layoutMode == .classic else { return }
         let body = textView.text ?? ""
         let ns = body as NSString
-        let caret = textView.selectedRange.location
-        let (line, col) = lineColumn(in: ns, at: caret)
-        let lines = body.split(separator: "\n", omittingEmptySubsequences: false).count
+        let metrics = EditorTextMetrics.make(in: ns, caret: textView.selectedRange.location)
         statusBar.update(
-            cursorLine: line,
-            cursorColumn: col,
-            lineCount: lines,
+            cursorLine: metrics.cursorLine,
+            cursorColumn: metrics.cursorColumn,
+            lineCount: metrics.lineCount,
             charCount: ns.length,
             selectionLength: textView.selectedRange.length,
             lineEndings: StatusBar.detectLineEndings(in: body),
@@ -795,21 +797,27 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         )
     }
 
-    private func lineColumn(in ns: NSString, at location: Int) -> (Int, Int) {
-        let clamped = max(0, min(location, ns.length))
-        var line = 1
-        var lastNewline = -1
-        var i = 0
-        while i < clamped {
-            if ns.character(at: i) == 0x0A { line += 1; lastNewline = i }
-            i += 1
-        }
-        return (line, clamped - lastNewline)
-    }
-
     // MARK: - Highlighting
 
+    private func scheduleRehighlight() {
+        pendingHighlight?.cancel()
+        highlightGeneration += 1
+        let generation = highlightGeneration
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.highlightGeneration == generation else { return }
+            self.pendingHighlight = nil
+            self.rehighlight()
+        }
+        pendingHighlight = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: item)
+    }
+
     private func rehighlight(force: Bool = false) {
+        if force {
+            highlightGeneration += 1
+            pendingHighlight?.cancel()
+            pendingHighlight = nil
+        }
         let body = textView.text ?? ""
         let language = store.activeNote.language
         if !force && body == lastHighlightedBody && language == lastHighlightedLanguage { return }
@@ -821,8 +829,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // MARK: - UITextViewDelegate
 
     func textViewDidChange(_ textView: UITextView) {
-        store.updateActive(body: textView.text)
-        rehighlight()
+        store.updateActiveDraft(body: textView.text)
+        scheduleRehighlight()
         if previewMode { markdownPreview.setMarkdown(textView.text ?? "") }
         keyboardAccessory.canUndo = textView.undoManager?.canUndo ?? false
         keyboardAccessory.canRedo = textView.undoManager?.canRedo ?? false
@@ -1260,7 +1268,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     private func presentGotoLine() {
         let body = textView.text ?? ""
-        let maxLine = body.split(separator: "\n", omittingEmptySubsequences: false).count
+        let maxLine = EditorTextMetrics.make(in: body as NSString, caret: textView.selectedRange.location).lineCount
         GotoLine.prompt(from: self, maxLine: maxLine) { [weak self] line in
             self?.scrollToLine(line)
         }
@@ -1436,6 +1444,37 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             self?.store.rename(id: id, title: newName)
         })
         present(alert, animated: true)
+    }
+}
+
+private struct EditorTextMetrics {
+    let lineCount: Int
+    let cursorLine: Int
+    let cursorColumn: Int
+
+    static func make(in text: NSString, caret: Int) -> EditorTextMetrics {
+        let clamped = max(0, min(caret, text.length))
+        var lineCount = 1
+        var cursorLine = 1
+        var lastNewlineBeforeCaret = -1
+        var index = 0
+
+        while index < text.length {
+            if text.character(at: index) == 0x0A {
+                lineCount += 1
+                if index < clamped {
+                    cursorLine += 1
+                    lastNewlineBeforeCaret = index
+                }
+            }
+            index += 1
+        }
+
+        return EditorTextMetrics(
+            lineCount: lineCount,
+            cursorLine: cursorLine,
+            cursorColumn: clamped - lastNewlineBeforeCaret
+        )
     }
 }
 

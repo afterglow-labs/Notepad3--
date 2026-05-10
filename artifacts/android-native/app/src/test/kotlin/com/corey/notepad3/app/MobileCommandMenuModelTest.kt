@@ -117,51 +117,15 @@ class MobileCommandMenuModelTest {
     }
 
     @Test
-    fun keyboardAccessoryUsesPagedDeckLikeDesktopKeyboardRows() {
-        assertEquals(
-            listOf("Windows", "esc", "shift", "ctrl", "alt", "enter"),
-            accessoryDeckModifierStrip().map { it.label },
-        )
-        assertEquals(AccessoryDeckPage.NAVIGATION, defaultAccessoryDeckPage())
-        assertEquals(
-            listOf("Nav", "Edit", "123"),
-            accessoryDeckPages().map { it.title },
-        )
-        assertEquals(3, accessoryDeckColumnCount(AccessoryDeckPage.EDIT))
-        assertEquals(3, accessoryDeckColumnCount(AccessoryDeckPage.NAVIGATION))
-        assertEquals(4, accessoryDeckColumnCount(AccessoryDeckPage.NUMERIC))
-        assertEquals(4, accessoryDeckRowCount(AccessoryDeckPage.EDIT))
-        assertEquals(3, accessoryDeckRowCount(AccessoryDeckPage.NAVIGATION))
-        assertEquals(4, accessoryDeckRowCount(AccessoryDeckPage.NUMERIC))
-        assertEquals(
-            listOf("Copy", "Cut", "Paste", "•••"),
-            accessoryDeckLeftRail().map { it.label },
-        )
-        assertEquals(
-            listOf("Backspace", "Enter"),
-            accessoryDeckRightRail().map { it.label },
-        )
-        assertEquals(
-            listOf("Undo", "Redo", "Find", "Word", "Line", "All", "Date", "Open", "Read", "Compare", "More", "Hide"),
-            accessoryDeckKeys(AccessoryDeckPage.EDIT).map { it.label },
-        )
-        assertEquals(
-            listOf("Home", "Up", "Pg Up", "End", "Down", "Pg Dn", "Left", "Right", "Tab"),
-            accessoryDeckKeys(AccessoryDeckPage.NAVIGATION).map { it.label },
-        )
-        assertEquals(
-            listOf("/", "7", "8", "9", "*", "4", "5", "6", "-", "1", "2", "3", "+", "0", "."),
-            accessoryDeckKeys(AccessoryDeckPage.NUMERIC).map { it.label },
-        )
-        assertEquals(2, accessoryDeckKeys(AccessoryDeckPage.NUMERIC).first { it.label == "0" }.columnSpan)
-        assertTrue(accessoryDeckRightRail().first { it.label == "Backspace" }.repeatOnHold)
-        assertTrue(accessoryDeckKeys(AccessoryDeckPage.NAVIGATION).first { it.label == "Left" }.repeatOnHold)
-        assertEquals(AccessoryDeckPage.EDIT, nextAccessoryDeckPage(AccessoryDeckPage.NAVIGATION))
-        assertEquals(AccessoryDeckPage.NUMERIC, nextAccessoryDeckPage(AccessoryDeckPage.EDIT))
-        assertEquals(AccessoryDeckPage.NAVIGATION, nextAccessoryDeckPage(AccessoryDeckPage.NUMERIC))
-        assertEquals("●••", AccessoryDeckPage.NAVIGATION.pageDotsLabel())
-        assertEquals("↑", accessoryDeckVisualLabel(accessoryDeckKeys(AccessoryDeckPage.NAVIGATION).first { it.id == AccessoryDeckActionId.MOVE_UP }, AccessoryDeckPage.NAVIGATION))
-        assertEquals("←", accessoryDeckVisualLabel(accessoryDeckKeys(AccessoryDeckPage.NAVIGATION).first { it.id == AccessoryDeckActionId.MOVE_LEFT }, AccessoryDeckPage.NAVIGATION))
+    fun keyboardAccessoryStaysInNativeToolbarModel() {
+        assertFalse(keyboardAccessoryUsesDeckSurface())
+        assertEquals(MobileMenuSurface.MENU_BAR, keyboardAccessoryMoreSurface())
+        assertTrue(accessoryStaticButtonRepeats("Left"))
+        assertTrue(accessoryStaticButtonRepeats("Backspace"))
+        assertFalse(accessoryStaticButtonRepeats("Deck"))
+        assertFalse(accessoryStaticButtonRepeats("Home"))
+        assertFalse(accessoryStaticButtonRepeats("Pg Up"))
+        assertFalse(accessoryStaticButtonRepeats("Windows"))
     }
 
     @Test

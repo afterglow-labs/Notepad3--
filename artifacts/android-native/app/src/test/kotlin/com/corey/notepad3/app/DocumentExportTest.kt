@@ -41,6 +41,62 @@ class DocumentExportTest {
             DocumentExport.mimeTypeFor(TextDocument(title = "editor.cpp", language = DocumentLanguage.C_PLUS_PLUS)),
         )
         assertEquals(
+            "text/x-java-source",
+            DocumentExport.mimeTypeFor(TextDocument(title = "Service.java", language = DocumentLanguage.JAVA)),
+        )
+        assertEquals(
+            "text/x-csharp",
+            DocumentExport.mimeTypeFor(TextDocument(title = "Program.cs", language = DocumentLanguage.C_SHARP)),
+        )
+        assertEquals(
+            "text/x-go",
+            DocumentExport.mimeTypeFor(TextDocument(title = "server.go", language = DocumentLanguage.GO)),
+        )
+        assertEquals(
+            "text/rust",
+            DocumentExport.mimeTypeFor(TextDocument(title = "lib.rs", language = DocumentLanguage.RUST)),
+        )
+        assertEquals(
+            "text/x-dart",
+            DocumentExport.mimeTypeFor(TextDocument(title = "main.dart", language = DocumentLanguage.DART)),
+        )
+        assertEquals(
+            "application/x-httpd-php",
+            DocumentExport.mimeTypeFor(TextDocument(title = "index.php", language = DocumentLanguage.PHP)),
+        )
+        assertEquals(
+            "text/x-ruby",
+            DocumentExport.mimeTypeFor(TextDocument(title = "Gemfile", language = DocumentLanguage.RUBY)),
+        )
+        assertEquals(
+            "application/x-sh",
+            DocumentExport.mimeTypeFor(TextDocument(title = "install.sh", language = DocumentLanguage.SHELL)),
+        )
+        assertEquals(
+            "text/x-powershell",
+            DocumentExport.mimeTypeFor(TextDocument(title = "profile.ps1", language = DocumentLanguage.POWERSHELL)),
+        )
+        assertEquals(
+            "application/sql",
+            DocumentExport.mimeTypeFor(TextDocument(title = "schema.sql", language = DocumentLanguage.SQL)),
+        )
+        assertEquals(
+            "application/yaml",
+            DocumentExport.mimeTypeFor(TextDocument(title = "workflow.yml", language = DocumentLanguage.YAML)),
+        )
+        assertEquals(
+            "application/toml",
+            DocumentExport.mimeTypeFor(TextDocument(title = "pyproject.toml", language = DocumentLanguage.TOML)),
+        )
+        assertEquals(
+            "text/plain",
+            DocumentExport.mimeTypeFor(TextDocument(title = ".editorconfig", language = DocumentLanguage.INI)),
+        )
+        assertEquals(
+            "text/x-dockerfile",
+            DocumentExport.mimeTypeFor(TextDocument(title = "Dockerfile", language = DocumentLanguage.DOCKERFILE)),
+        )
+        assertEquals(
             "text/plain",
             DocumentExport.mimeTypeFor(TextDocument(title = "scratch", language = DocumentLanguage.PLAIN)),
         )

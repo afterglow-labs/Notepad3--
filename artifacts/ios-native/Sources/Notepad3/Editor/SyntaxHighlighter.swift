@@ -53,21 +53,21 @@ enum SyntaxHighlighter {
         let full = NSRange(location: 0, length: text.length)
         let source = text as String
         var out: [Token] = []
-        var claimed: [NSRange] = []
+        var claimed = IndexSet()
 
         // Block comments are honored when the language uses `//` as a line
         // comment — that covers C-style languages plus CSS block comments.
         let supportsBlockComments = language.supportsBlockComments
         let isAssembly = language == .assembly
-        let isJavaScript = language == .javaScript
+        let supportsAtRules = language == .javaScript || language == .python || language == .css
 
         // 1. Block comments — `/* ... */`, multi-line, non-greedy.
         if supportsBlockComments,
-           let re = try? NSRegularExpression(pattern: "/\\*[\\s\\S]*?\\*/", options: []) {
+           let re = Regex.blockComment {
             re.enumerateMatches(in: source, range: full) { match, _, _ in
                 guard let r = match?.range else { return }
                 out.append(Token(range: r, kind: .blockComment))
-                claimed.append(r)
+                claim(r, in: &claimed)
             }
         }
 
@@ -78,36 +78,35 @@ enum SyntaxHighlighter {
             re.enumerateMatches(in: source, range: full) { match, _, _ in
                 guard let r = match?.range, !isClaimed(r, in: claimed) else { return }
                 out.append(Token(range: r, kind: .comment))
-                claimed.append(r)
+                claim(r, in: &claimed)
             }
         }
 
         // 3. Template strings — backtick-delimited, backtick-escape supported,
         // may span newlines (hence `[\\s\\S]`).
-        if let re = try? NSRegularExpression(pattern: "`(?:\\\\.|[^`\\\\])*`", options: []) {
+        if let re = Regex.templateString {
             re.enumerateMatches(in: source, range: full) { match, _, _ in
                 guard let r = match?.range, !isClaimed(r, in: claimed) else { return }
                 out.append(Token(range: r, kind: .templateString))
-                claimed.append(r)
+                claim(r, in: &claimed)
             }
         }
 
         // 4. Regular strings — double- and single-quoted, not spanning newlines.
-        let stringPattern = #""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'"#
-        if let re = try? NSRegularExpression(pattern: stringPattern) {
+        if let re = Regex.string {
             re.enumerateMatches(in: source, range: full) { match, _, _ in
                 guard let r = match?.range, !isClaimed(r, in: claimed) else { return }
                 out.append(Token(range: r, kind: .string))
-                claimed.append(r)
+                claim(r, in: &claimed)
             }
         }
 
         // 5. Numbers — decimal + optional fraction, or hex literals.
-        if let re = try? NSRegularExpression(pattern: "\\b(?:0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b") {
+        if let re = Regex.number {
             re.enumerateMatches(in: source, range: full) { match, _, _ in
                 guard let r = match?.range, !isClaimed(r, in: claimed) else { return }
                 out.append(Token(range: r, kind: .number))
-                claimed.append(r)
+                claim(r, in: &claimed)
             }
         }
 
@@ -116,37 +115,39 @@ enum SyntaxHighlighter {
         // stay as keywords even when followed by `(` (e.g. `if (...)`).
         let kw = language.keywords
         let reg = language.registers
-        if let re = try? NSRegularExpression(pattern: "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b") {
+        let caseInsensitiveKeywords = language.isKeywordCaseInsensitive
+        if let re = Regex.identifier {
             re.enumerateMatches(in: source, range: full) { match, _, _ in
                 guard let r = match?.range, !isClaimed(r, in: claimed) else { return }
                 let word = text.substring(with: r)
-                if kw.contains(word) {
+                let lookup = caseInsensitiveKeywords ? word.lowercased() : word
+                if kw.contains(lookup) {
                     out.append(Token(range: r, kind: .keyword))
-                    claimed.append(r)
-                } else if reg.contains(word) {
+                    claim(r, in: &claimed)
+                } else if reg.contains(lookup) {
                     out.append(Token(range: r, kind: .register))
-                    claimed.append(r)
+                    claim(r, in: &claimed)
                 } else if !isAssembly, isFollowedByOpenParen(text: text, after: r) {
                     out.append(Token(range: r, kind: .functionCall))
-                    claimed.append(r)
+                    claim(r, in: &claimed)
                 }
             }
         }
 
-        // 8. Decorators — `@identifier` in JavaScript/TypeScript sources.
-        if isJavaScript,
-           let re = try? NSRegularExpression(pattern: "@[a-zA-Z_][a-zA-Z0-9_]*") {
+        // 8. Decorators / at-rules — `@identifier` in JS/TS, Python, and CSS.
+        if supportsAtRules,
+           let re = Regex.decorator {
             re.enumerateMatches(in: source, range: full) { match, _, _ in
                 guard let r = match?.range, !isClaimed(r, in: claimed) else { return }
                 out.append(Token(range: r, kind: .decorator))
-                claimed.append(r)
+                claim(r, in: &claimed)
             }
         }
 
         // 9. Operators — applied last on still-unclaimed positions. Assembly
         // uses operators sparingly, so we scope this pass to code languages.
         if !isAssembly && language != .plain && language != .markdown {
-            if let re = try? NSRegularExpression(pattern: "[+\\-*/%=<>!&|\\^~?:]+") {
+            if let re = Regex.operatorSymbol {
                 re.enumerateMatches(in: source, range: full) { match, _, _ in
                     guard let r = match?.range, !isClaimed(r, in: claimed) else { return }
                     out.append(Token(range: r, kind: .operatorSymbol))
@@ -155,6 +156,16 @@ enum SyntaxHighlighter {
         }
 
         return out
+    }
+
+    private enum Regex {
+        static let blockComment = try? NSRegularExpression(pattern: "/\\*[\\s\\S]*?\\*/", options: [])
+        static let templateString = try? NSRegularExpression(pattern: "`(?:\\\\.|[^`\\\\])*`", options: [])
+        static let string = try? NSRegularExpression(pattern: #""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'"#)
+        static let number = try? NSRegularExpression(pattern: "\\b(?:0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b")
+        static let identifier = try? NSRegularExpression(pattern: "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b")
+        static let decorator = try? NSRegularExpression(pattern: "@[a-zA-Z_][a-zA-Z0-9_]*")
+        static let operatorSymbol = try? NSRegularExpression(pattern: "[+\\-*/%=<>!&|\\^~?:]+")
     }
 
     /// Scan the immediate whitespace after `range` and return true if the next
@@ -170,9 +181,15 @@ enum SyntaxHighlighter {
         return false
     }
 
-    private static func isClaimed(_ r: NSRange, in claimed: [NSRange]) -> Bool {
-        for c in claimed where NSIntersectionRange(r, c).length > 0 { return true }
-        return false
+    private static func isClaimed(_ r: NSRange, in claimed: IndexSet) -> Bool {
+        guard r.length > 0 else { return false }
+        let range = r.location..<(r.location + r.length)
+        return claimed.rangeView.contains { $0.overlaps(range) }
+    }
+
+    private static func claim(_ r: NSRange, in claimed: inout IndexSet) {
+        guard r.length > 0 else { return }
+        claimed.insert(integersIn: r.location..<(r.location + r.length))
     }
 
     // MARK: - Colors

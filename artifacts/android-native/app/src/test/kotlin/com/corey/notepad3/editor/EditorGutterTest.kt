@@ -55,4 +55,17 @@ class EditorGutterTest {
         assertEquals(2, EditorGutter.logicalLineNumberAtOffset(body, 6))
         assertEquals(3, EditorGutter.logicalLineNumberAtOffset(body, body.length))
     }
+
+    @Test
+    fun mapsSortedOffsetsToLogicalLineNumbersInOnePass() {
+        val body = "alpha\nbeta\ngamma\n"
+
+        assertEquals(
+            listOf(1, 1, 2, 3, 4, 4),
+            EditorGutter.logicalLineNumbersAtSortedOffsets(
+                body = body,
+                offsets = listOf(-4, 5, 6, 11, body.length, body.length + 10),
+            ),
+        )
+    }
 }

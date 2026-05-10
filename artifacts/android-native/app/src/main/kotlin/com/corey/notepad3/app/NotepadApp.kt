@@ -24,8 +24,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -64,6 +62,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -80,7 +79,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -109,8 +107,9 @@ import com.corey.notepad3.theme.Palette
 import com.corey.notepad3.theme.ThemeController
 import com.corey.notepad3.theme.ThemeName
 import com.corey.notepad3.theme.ThemePreference
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -173,6 +172,19 @@ fun NotepadApp(
     )
     val canUndo = historyVersion.let { history.canUndo }
     val canRedo = historyVersion.let { history.canRedo }
+
+    LaunchedEffect(active.id, active.body) {
+        delay(400)
+        withContext(Dispatchers.IO) {
+            store.flushPendingChanges()
+        }
+    }
+
+    DisposableEffect(store) {
+        onDispose {
+            store.flushPendingChanges()
+        }
+    }
 
     fun rememberSelection(selection: TextSelection) {
         selections[active.id] = selection
@@ -394,28 +406,6 @@ fun NotepadApp(
             val nextLineStart = lineEnd + 1
             val nextLineEnd = body.indexOf('\n', nextLineStart).takeIf { it >= 0 } ?: body.length
             updateCursorSelection((nextLineStart + column).coerceAtMost(nextLineEnd))
-        }
-    }
-
-    fun moveCursorHome() {
-        val body = active.body
-        val caret = movingCursor().coerceIn(0, body.length)
-        updateCursorSelection(body.lastIndexOf('\n', (caret - 1).coerceAtLeast(0)) + 1)
-    }
-
-    fun moveCursorEnd() {
-        val body = active.body
-        val caret = movingCursor().coerceIn(0, body.length)
-        updateCursorSelection(body.indexOf('\n', caret).takeIf { it >= 0 } ?: body.length)
-    }
-
-    fun moveCursorPage(direction: Int) {
-        moveCursorBy(direction * 80)
-    }
-
-    fun insertAccessoryText(text: String) {
-        if (!readMode) {
-            commitEdit(EditorCommands.insertText(active.body, activeSelection, text))
         }
     }
 
@@ -763,7 +753,7 @@ fun NotepadApp(
                                     selections[active.id] = nextSelection
                                     history.recordUserEdit(next)
                                     historyVersion += 1
-                                    store.updateActive(body = next)
+                                    store.updateActiveDraft(body = next)
                                 }
                             },
                             modifier = Modifier.fillMaxSize(),
@@ -826,13 +816,8 @@ fun NotepadApp(
                             onMoveUp = { moveCursorVertical(-1) },
                             onMoveDown = { moveCursorVertical(1) },
                             onMoveRight = { moveCursorBy(1) },
-                            onMoveHome = ::moveCursorHome,
-                            onMoveEnd = ::moveCursorEnd,
-                            onPageUp = { moveCursorPage(-1) },
-                            onPageDown = { moveCursorPage(1) },
                             onFind = ::toggleFindPanel,
                             onInsertDateTime = ::insertDateTime,
-                            onInsertText = ::insertAccessoryText,
                             onOpenDocuments = ::toggleDocumentsPanel,
                             onSelectAll = ::selectAllText,
                             onSelectWord = ::selectWord,
@@ -3238,6 +3223,7 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
     private var textPaddingRightPx = 18
     private var textPaddingBottomPx = 18
     private var gutterSidePaddingPx = 10
+    private var bodySnapshot = ""
 
     init {
         gutterReady = true
@@ -3266,6 +3252,9 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
         syncGutterPadding()
     }
 
+    fun isDisplayingBody(body: String): Boolean =
+        bodySnapshot == body
+
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
         if (selStart >= 0 && selEnd >= 0) {
@@ -3275,6 +3264,7 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
 
     override fun onTextChanged(text: CharSequence?, start: Int, lengthBefore: Int, lengthAfter: Int) {
         super.onTextChanged(text, start, lengthBefore, lengthAfter)
+        bodySnapshot = text?.toString().orEmpty()
         syncGutterPadding()
     }
 
@@ -3296,8 +3286,7 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
 
     private fun drawLineNumberGutter(canvas: Canvas) {
         if (!gutterReady || !showLineNumbers) return
-        val body = text?.toString().orEmpty()
-        val gutterWidth = gutterWidthPx(body)
+        val gutterWidth = gutterWidthPx(bodySnapshot)
         val left = scrollX.toFloat()
         val top = scrollY.toFloat()
         val right = left + gutterWidth
@@ -3308,10 +3297,13 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
         val layout = layout ?: return
         val firstVisibleLine = layout.getLineForVertical(scrollY)
         val lastVisibleLine = layout.getLineForVertical(scrollY + height)
+        val visualLines = firstVisibleLine..lastVisibleLine
+        val lineStarts = visualLines.map { visualLine -> layout.getLineStart(visualLine) }
+        val logicalLines = EditorGutter.logicalLineNumbersAtSortedOffsets(bodySnapshot, lineStarts)
         var previousLogicalLine = 0
-        for (visualLine in firstVisibleLine..lastVisibleLine) {
-            val lineStart = layout.getLineStart(visualLine)
-            val logicalLine = EditorGutter.logicalLineNumberAtOffset(body, lineStart)
+        for (index in logicalLines.indices) {
+            val visualLine = firstVisibleLine + index
+            val logicalLine = logicalLines[index]
             if (logicalLine == previousLogicalLine) continue
             previousLogicalLine = logicalLine
             val baseline = getLineBounds(visualLine, lineBounds)
@@ -3328,7 +3320,7 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
         if (!gutterReady) return
         val left = if (showLineNumbers) {
             EditorGutter.totalLeftPaddingPx(
-                lineCount = EditorGutter.visibleLineCount(text?.toString().orEmpty()),
+                lineCount = EditorGutter.visibleLineCount(bodySnapshot),
                 digitWidthPx = lineNumberPaint.measureText("0"),
                 sidePaddingPx = gutterSidePaddingPx,
                 textPaddingPx = textPaddingLeftPx,
@@ -3442,7 +3434,7 @@ private fun EditorTextArea(
             }
             editText.selectionChangedCallback = { latestOnSelectionChange.value(it) }
             val safeSelection = selection.clamped(document.body.length)
-            val bodyChangedExternally = editText.text.toString() != document.body
+            val bodyChangedExternally = !editText.isDisplayingBody(document.body)
             editText.isCursorVisible = !readOnly
             editText.showSoftInputOnFocus = shouldShowSoftKeyboard
             if (readOnly) {
@@ -3601,13 +3593,8 @@ private fun MobileKeyboardAccessory(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onMoveRight: () -> Unit,
-    onMoveHome: () -> Unit,
-    onMoveEnd: () -> Unit,
-    onPageUp: () -> Unit,
-    onPageDown: () -> Unit,
     onFind: () -> Unit,
     onInsertDateTime: () -> Unit,
-    onInsertText: (String) -> Unit,
     onOpenDocuments: () -> Unit,
     onSelectAll: () -> Unit,
     onSelectWord: () -> Unit,
@@ -3615,575 +3602,112 @@ private fun MobileKeyboardAccessory(
     onCompare: () -> Unit,
     onMore: () -> Unit,
 ) {
+    val toolbarRows = displayOptions.accessoryToolbarRows
     val buttonSize = displayOptions.accessoryToolbarButtonSize
+    val contentMode = displayOptions.accessoryToolbarContentMode
     val keyboardToggle = keyboardAccessoryToggleState(
         keyboardSuppressed = keyboardSuppressed,
         readOnly = readOnly,
     )
-    var deckPage by rememberSaveable { mutableStateOf(defaultAccessoryDeckPage()) }
-    var ctrlActive by rememberSaveable { mutableStateOf(false) }
-    var altActive by rememberSaveable { mutableStateOf(false) }
-    val stripHeight = when (buttonSize) {
-        AccessoryToolbarButtonSize.SMALL -> 50
-        AccessoryToolbarButtonSize.MEDIUM -> 56
-        AccessoryToolbarButtonSize.LARGE -> 62
-    }
-    val keyHeight = when (buttonSize) {
-        AccessoryToolbarButtonSize.SMALL -> 58
-        AccessoryToolbarButtonSize.MEDIUM -> 66
-        AccessoryToolbarButtonSize.LARGE -> 74
-    }
-    val railWidth = when (buttonSize) {
-        AccessoryToolbarButtonSize.SMALL -> 54
-        AccessoryToolbarButtonSize.MEDIUM -> 62
-        AccessoryToolbarButtonSize.LARGE -> 70
-    }
-    val deckBackground = Color(0xFF373737)
-    val deckBorder = Color(0xFF4A4A4A)
-    var dragTotal by remember { mutableStateOf(0f) }
-    fun showNextDeckPage() {
-        deckPage = nextAccessoryDeckPage(deckPage)
-    }
-    fun showPreviousDeckPage() {
-        deckPage = previousAccessoryDeckPage(deckPage)
-    }
-
-    fun renderKey(spec: AccessoryDeckKeySpec): AccessoryDeckRenderKey {
-        val enabled = when (spec.id) {
-            AccessoryDeckActionId.BACKSPACE,
-            AccessoryDeckActionId.ENTER,
-            AccessoryDeckActionId.TAB,
-            AccessoryDeckActionId.INSERT_TEXT,
-            AccessoryDeckActionId.INSERT_DATE -> !readOnly
-            AccessoryDeckActionId.CUT -> canCut
-            AccessoryDeckActionId.PASTE -> canPaste && !readOnly
-            AccessoryDeckActionId.UNDO -> canUndo
-            AccessoryDeckActionId.REDO -> canRedo
-            AccessoryDeckActionId.COMPARE -> compareEnabled
-            AccessoryDeckActionId.HIDE_KEYBOARD,
-            AccessoryDeckActionId.ESCAPE -> keyboardToggle.enabled
-            else -> true
-        }
-        val active = when (spec.id) {
-            AccessoryDeckActionId.SHIFT -> shiftActive
-            AccessoryDeckActionId.CTRL -> ctrlActive
-            AccessoryDeckActionId.ALT -> altActive
-            AccessoryDeckActionId.READ_MODE -> readOnly
-            AccessoryDeckActionId.FIND -> findActive
-            AccessoryDeckActionId.COMPARE -> compareActive
-            AccessoryDeckActionId.SWITCH_DECK -> keyboardSuppressed
-            AccessoryDeckActionId.HIDE_KEYBOARD,
-            AccessoryDeckActionId.ESCAPE -> keyboardToggle.active
-            else -> false
-        }
-        val icon = when (spec.id) {
-            AccessoryDeckActionId.OPEN_DOCUMENTS -> Icons.Filled.Window
-            AccessoryDeckActionId.COPY -> Icons.Filled.ContentCopy
-            AccessoryDeckActionId.CUT -> Icons.Filled.ContentCut
-            AccessoryDeckActionId.PASTE -> Icons.Filled.ContentPaste
-            AccessoryDeckActionId.BACKSPACE -> Icons.AutoMirrored.Filled.Backspace
-            AccessoryDeckActionId.SWITCH_DECK -> Icons.AutoMirrored.Filled.CompareArrows
-            AccessoryDeckActionId.UNDO -> Icons.AutoMirrored.Filled.Undo
-            AccessoryDeckActionId.REDO -> Icons.AutoMirrored.Filled.Redo
-            AccessoryDeckActionId.FIND -> Icons.Filled.Search
-            AccessoryDeckActionId.SELECT_WORD -> Icons.AutoMirrored.Filled.ShortText
-            AccessoryDeckActionId.SELECT_LINE -> Icons.AutoMirrored.Filled.Subject
-            AccessoryDeckActionId.SELECT_ALL -> Icons.Filled.SelectAll
-            AccessoryDeckActionId.INSERT_DATE -> Icons.Filled.AccessTime
-            AccessoryDeckActionId.READ_MODE -> if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
-            AccessoryDeckActionId.COMPARE -> Icons.Filled.ViewColumn
-            AccessoryDeckActionId.MORE -> Icons.Filled.MoreHoriz
-            AccessoryDeckActionId.HIDE_KEYBOARD -> Icons.Filled.Keyboard
-            AccessoryDeckActionId.MOVE_UP -> Icons.Filled.KeyboardArrowUp
-            AccessoryDeckActionId.MOVE_DOWN -> Icons.Filled.KeyboardArrowDown
-            AccessoryDeckActionId.MOVE_LEFT -> Icons.AutoMirrored.Filled.KeyboardArrowLeft
-            AccessoryDeckActionId.MOVE_RIGHT -> Icons.AutoMirrored.Filled.KeyboardArrowRight
-            else -> null
-        }
-        return AccessoryDeckRenderKey(
-            spec = spec,
-            icon = icon,
-            enabled = enabled,
-            active = active,
-            labelOverride = accessoryDeckVisualLabel(spec, deckPage),
-            onClick = {
-                when (spec.id) {
-                    AccessoryDeckActionId.OPEN_DOCUMENTS -> onOpenDocuments()
-                    AccessoryDeckActionId.ESCAPE,
-                    AccessoryDeckActionId.HIDE_KEYBOARD -> onToggleKeyboardSuppression()
-                    AccessoryDeckActionId.SHIFT -> onShiftToggle()
-                    AccessoryDeckActionId.CTRL -> ctrlActive = !ctrlActive
-                    AccessoryDeckActionId.ALT -> altActive = !altActive
-                    AccessoryDeckActionId.ENTER,
-                    AccessoryDeckActionId.TAB,
-                    AccessoryDeckActionId.INSERT_TEXT -> spec.insertText?.let(onInsertText)
-                    AccessoryDeckActionId.COPY -> onCopy()
-                    AccessoryDeckActionId.CUT -> onCut()
-                    AccessoryDeckActionId.PASTE -> onPaste()
-                    AccessoryDeckActionId.PAGE_DOTS,
-                    AccessoryDeckActionId.SWITCH_DECK -> showNextDeckPage()
-                    AccessoryDeckActionId.BACKSPACE -> onDeleteBackward()
-                    AccessoryDeckActionId.UNDO -> onUndo()
-                    AccessoryDeckActionId.REDO -> onRedo()
-                    AccessoryDeckActionId.FIND -> onFind()
-                    AccessoryDeckActionId.SELECT_WORD -> onSelectWord()
-                    AccessoryDeckActionId.SELECT_LINE -> onSelectLine()
-                    AccessoryDeckActionId.SELECT_ALL -> onSelectAll()
-                    AccessoryDeckActionId.INSERT_DATE -> onInsertDateTime()
-                    AccessoryDeckActionId.READ_MODE -> onReadToggle()
-                    AccessoryDeckActionId.COMPARE -> onCompare()
-                    AccessoryDeckActionId.MORE -> onMore()
-                    AccessoryDeckActionId.HOME -> onMoveHome()
-                    AccessoryDeckActionId.END -> onMoveEnd()
-                    AccessoryDeckActionId.PAGE_UP -> onPageUp()
-                    AccessoryDeckActionId.PAGE_DOWN -> onPageDown()
-                    AccessoryDeckActionId.MOVE_LEFT -> onMoveLeft()
-                    AccessoryDeckActionId.MOVE_UP -> onMoveUp()
-                    AccessoryDeckActionId.MOVE_DOWN -> onMoveDown()
-                    AccessoryDeckActionId.MOVE_RIGHT -> onMoveRight()
-                    AccessoryDeckActionId.PRINT_SCREEN,
-                    AccessoryDeckActionId.SCROLL_LOCK,
-                    AccessoryDeckActionId.BREAK,
-                    AccessoryDeckActionId.INSERT -> Unit
-                }
-            },
-        )
-    }
-
-    if (!keyboardSuppressed) {
-        CompactKeyboardAccessoryStrip(
-            palette = palette,
-            buttonSize = buttonSize,
-            renderKey = ::renderKey,
-            onShowDeck = onToggleKeyboardSuppression,
-        )
-        return
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height((stripHeight + keyHeight * 4 + 42).dp)
-            .animateContentSize()
-            .background(deckBackground)
-            .border(2.dp, deckBorder)
-            .pointerInput(deckPage) {
-                detectHorizontalDragGestures(
-                    onDragStart = { dragTotal = 0f },
-                    onHorizontalDrag = { _, dragAmount ->
-                        dragTotal += dragAmount
-                    },
-                    onDragEnd = {
-                        when {
-                            dragTotal <= -72f -> showNextDeckPage()
-                            dragTotal >= 72f -> showPreviousDeckPage()
-                        }
-                        dragTotal = 0f
-                    },
-                    onDragCancel = {
-                        dragTotal = 0f
-                    },
-                )
-            }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(stripHeight.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val modifierSpecs = accessoryDeckModifierStrip()
-            val switchSpec = AccessoryDeckKeySpec(AccessoryDeckActionId.SWITCH_DECK, "ABC")
-            modifierSpecs.take(1).forEach { spec ->
-                AccessoryDeckKeyButton(
-                    key = renderKey(spec),
-                    keyHeight = stripHeight,
-                    iconOnly = true,
-                    textScale = 0.27f,
-                    modifier = Modifier.width(railWidth.dp),
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                modifierSpecs.drop(1).forEach { spec ->
-                    AccessoryDeckKeyButton(
-                        key = renderKey(spec),
-                        keyHeight = stripHeight,
-                        textOnly = true,
-                        textScale = 0.27f,
-                        modifier = Modifier.width(86.dp),
-                    )
-                }
-            }
-            AccessoryDeckKeyButton(
-                key = renderKey(switchSpec).copy(
-                    onClick = onToggleKeyboardSuppression,
-                    labelOverride = "Keyboard",
-                ),
-                keyHeight = stripHeight,
-                iconOnly = true,
-                textScale = 0.27f,
-                modifier = Modifier.width(railWidth.dp),
-            )
-        }
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier = Modifier
-                    .width(railWidth.dp)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                accessoryDeckLeftRail().forEach { spec ->
-                    AccessoryDeckKeyButton(
-                        key = renderKey(spec),
-                        keyHeight = keyHeight,
-                        modifier = Modifier.weight(1f),
-                        iconOnly = spec.id != AccessoryDeckActionId.PAGE_DOTS,
-                    )
-                }
-            }
-            AccessoryDeckPageGrid(
-                page = deckPage,
-                renderKey = ::renderKey,
-                keyHeight = keyHeight,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-            )
-            Column(
-                modifier = Modifier
-                    .width(railWidth.dp)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                val rightRail = accessoryDeckRightRail()
-                AccessoryDeckKeyButton(
-                    key = renderKey(rightRail.first()),
-                    keyHeight = keyHeight,
-                    modifier = Modifier.weight(1f),
-                    iconOnly = true,
-                )
-                Spacer(Modifier.weight(1f))
-                AccessoryDeckKeyButton(
-                    key = renderKey(rightRail.last()),
-                    keyHeight = keyHeight,
-                    textOnly = true,
-                    textScale = 0.28f,
-                    modifier = Modifier.weight(2f),
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(16.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(112.dp)
-                    .height(5.dp)
-                    .background(Color.White.copy(alpha = 0.48f), RoundedCornerShape(999.dp)),
-            )
-        }
-    }
-}
-
-private data class AccessoryDeckRenderKey(
-    val spec: AccessoryDeckKeySpec,
-    val icon: ImageVector?,
-    val enabled: Boolean,
-    val active: Boolean,
-    val onClick: () -> Unit,
-    val labelOverride: String? = null,
-) {
-    val label: String
-        get() = labelOverride ?: spec.label
-    val accessibilityLabel: String
-        get() = spec.label
-}
-
-@Composable
-private fun CompactKeyboardAccessoryStrip(
-    palette: Palette,
-    buttonSize: AccessoryToolbarButtonSize,
-    renderKey: (AccessoryDeckKeySpec) -> AccessoryDeckRenderKey,
-    onShowDeck: () -> Unit,
-) {
-    val stripHeight = when (buttonSize) {
-        AccessoryToolbarButtonSize.SMALL -> 50
-        AccessoryToolbarButtonSize.MEDIUM -> 56
-        AccessoryToolbarButtonSize.LARGE -> 62
-    }
-    val darkBackground = Color(0xFF3A3A3A)
-    val darkBorder = Color(0xFF4A4A4A)
-    val leftSpec = AccessoryDeckKeySpec(AccessoryDeckActionId.OPEN_DOCUMENTS, "Windows")
-    val switchSpec = AccessoryDeckKeySpec(AccessoryDeckActionId.SWITCH_DECK, "Keys")
-    val compactSpecs = listOf(
-        AccessoryDeckKeySpec(AccessoryDeckActionId.ESCAPE, "esc"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.SHIFT, "shift"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.CTRL, "ctrl"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.ALT, "alt"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.ENTER, "enter", insertText = "\n"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.COPY, "Copy"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.CUT, "Cut"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.PASTE, "Paste"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.BACKSPACE, "Backspace", repeatOnHold = true),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.MOVE_LEFT, "Left", repeatOnHold = true),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.MOVE_UP, "Up", repeatOnHold = true),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.MOVE_DOWN, "Down", repeatOnHold = true),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.MOVE_RIGHT, "Right", repeatOnHold = true),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.FIND, "Find"),
-        AccessoryDeckKeySpec(AccessoryDeckActionId.MORE, "More"),
+    val allActions = listOf(
+        AccessoryToolbarAction(AccessoryToolbarButton.SHIFT, label = "Shift", active = shiftActive, onClick = onShiftToggle),
+        AccessoryToolbarAction(AccessoryToolbarButton.MOVE_UP, Icons.Filled.KeyboardArrowUp, "Up", onClick = onMoveUp),
+        AccessoryToolbarAction(
+            AccessoryToolbarButton.DELETE_BACKWARD,
+            Icons.AutoMirrored.Filled.Backspace,
+            "Delete",
+            enabled = !readOnly,
+            onClick = onDeleteBackward,
+        ),
+        AccessoryToolbarAction(AccessoryToolbarButton.MOVE_LEFT, Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", onClick = onMoveLeft),
+        AccessoryToolbarAction(AccessoryToolbarButton.MOVE_DOWN, Icons.Filled.KeyboardArrowDown, "Down", onClick = onMoveDown),
+        AccessoryToolbarAction(AccessoryToolbarButton.MOVE_RIGHT, Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", onClick = onMoveRight),
+        AccessoryToolbarAction(
+            AccessoryToolbarButton.HIDE_KEYBOARD,
+            Icons.Filled.Keyboard,
+            keyboardToggle.label,
+            enabled = keyboardToggle.enabled,
+            active = keyboardToggle.active,
+            onClick = onToggleKeyboardSuppression,
+        ),
+        AccessoryToolbarAction(AccessoryToolbarButton.CUT, Icons.Filled.ContentCut, "Cut", enabled = canCut, onClick = onCut),
+        AccessoryToolbarAction(AccessoryToolbarButton.COPY, Icons.Filled.ContentCopy, "Copy", onClick = onCopy),
+        AccessoryToolbarAction(AccessoryToolbarButton.PASTE, Icons.Filled.ContentPaste, "Paste", enabled = canPaste && !readOnly, onClick = onPaste),
+        AccessoryToolbarAction(AccessoryToolbarButton.SELECT_WORD, Icons.AutoMirrored.Filled.ShortText, "Word", onClick = onSelectWord),
+        AccessoryToolbarAction(AccessoryToolbarButton.SELECT_LINE, Icons.AutoMirrored.Filled.Subject, "Line", onClick = onSelectLine),
+        AccessoryToolbarAction(AccessoryToolbarButton.SELECT_ALL, Icons.Filled.SelectAll, "All", onClick = onSelectAll),
+        AccessoryToolbarAction(AccessoryToolbarButton.UNDO, Icons.AutoMirrored.Filled.Undo, "Undo", enabled = canUndo, onClick = onUndo),
+        AccessoryToolbarAction(AccessoryToolbarButton.REDO, Icons.AutoMirrored.Filled.Redo, "Redo", enabled = canRedo, onClick = onRedo),
+        AccessoryToolbarAction(
+            AccessoryToolbarButton.READ_MODE,
+            if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+            "Read",
+            active = readOnly,
+            onClick = onReadToggle,
+        ),
+        AccessoryToolbarAction(AccessoryToolbarButton.FIND, Icons.Filled.Search, "Find", active = findActive, onClick = onFind),
+        AccessoryToolbarAction(AccessoryToolbarButton.INSERT_DATE, Icons.Filled.AccessTime, "Date", enabled = !readOnly, onClick = onInsertDateTime),
+        AccessoryToolbarAction(AccessoryToolbarButton.OPEN_DOCUMENTS, Icons.Filled.FolderOpen, "Open", onClick = onOpenDocuments),
+        AccessoryToolbarAction(AccessoryToolbarButton.COMPARE, Icons.Filled.ViewColumn, "Compare", enabled = compareEnabled, active = compareActive, onClick = onCompare),
+        AccessoryToolbarAction(AccessoryToolbarButton.MORE, Icons.Filled.MoreHoriz, "More", onClick = onMore),
     )
-    val scrollState = rememberScrollState()
+    val visibleActions = allActions.filterNot { it.id in displayOptions.hiddenAccessoryButtons }
+    val staticActions = visibleActions.filter { it.id in displayOptions.staticAccessoryButtons }
+    val scrollingActions = visibleActions.filterNot { it.id in displayOptions.staticAccessoryButtons }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height((stripHeight + 14).dp)
-            .background(darkBackground)
-            .border(1.dp, darkBorder)
-            .horizontalScroll(scrollState)
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .height((buttonSize.rowHeightDp * toolbarRows + 8).dp)
+            .background(palette.card.toColor())
+            .border(1.dp, palette.border.toColor())
+            .padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AccessoryDeckKeyButton(
-            key = renderKey(leftSpec),
-            keyHeight = stripHeight,
-            iconOnly = true,
-            textScale = 0.29f,
-            modifier = Modifier.width(58.dp),
-        )
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .horizontalScroll(scrollState),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-        compactSpecs.forEach { spec ->
-            val key = renderKey(spec)
-            val fixedWidth = when (spec.id) {
-                AccessoryDeckActionId.COPY,
-                AccessoryDeckActionId.CUT,
-                AccessoryDeckActionId.PASTE,
-                AccessoryDeckActionId.BACKSPACE,
-                AccessoryDeckActionId.FIND,
-                AccessoryDeckActionId.MORE -> 54.dp
-                AccessoryDeckActionId.MOVE_LEFT,
-                AccessoryDeckActionId.MOVE_UP,
-                AccessoryDeckActionId.MOVE_DOWN,
-                AccessoryDeckActionId.MOVE_RIGHT -> 50.dp
-                else -> 86.dp
-            }
-            AccessoryDeckKeyButton(
-                key = key,
-                keyHeight = stripHeight,
-                iconOnly = spec.id in setOf(
-                    AccessoryDeckActionId.COPY,
-                    AccessoryDeckActionId.CUT,
-                    AccessoryDeckActionId.PASTE,
-                    AccessoryDeckActionId.BACKSPACE,
-                    AccessoryDeckActionId.FIND,
-                    AccessoryDeckActionId.MORE,
-                ),
-                textOnly = spec.id !in setOf(
-                    AccessoryDeckActionId.COPY,
-                    AccessoryDeckActionId.CUT,
-                    AccessoryDeckActionId.PASTE,
-                    AccessoryDeckActionId.BACKSPACE,
-                    AccessoryDeckActionId.FIND,
-                    AccessoryDeckActionId.MORE,
-                    AccessoryDeckActionId.MOVE_LEFT,
-                    AccessoryDeckActionId.MOVE_UP,
-                    AccessoryDeckActionId.MOVE_DOWN,
-                    AccessoryDeckActionId.MOVE_RIGHT,
-                ),
-                textScale = 0.29f,
-                modifier = Modifier.width(fixedWidth),
+        if (staticActions.isNotEmpty()) {
+            AccessoryStaticCluster(
+                actions = staticActions,
+                toolbarRows = toolbarRows,
+                buttonSize = buttonSize,
+                contentMode = contentMode,
+                palette = palette,
+            )
+            Spacer(
+                Modifier
+                    .fillMaxHeight()
+                    .width(1.dp)
+                    .background(palette.border.toColor()),
             )
         }
-        }
-        AccessoryDeckKeyButton(
-            key = renderKey(switchSpec).copy(
-                onClick = onShowDeck,
-                labelOverride = "Deck",
-            ),
-            keyHeight = stripHeight,
-            iconOnly = true,
-            textScale = 0.29f,
-            modifier = Modifier.width(64.dp),
-        )
-    }
-}
-
-@Composable
-private fun AccessoryDeckPageGrid(
-    page: AccessoryDeckPage,
-    renderKey: (AccessoryDeckKeySpec) -> AccessoryDeckRenderKey,
-    keyHeight: Int,
-    modifier: Modifier = Modifier,
-) {
-    val columns = accessoryDeckColumnCount(page)
-    val rows = accessoryDeckRowCount(page)
-    val keys = accessoryDeckKeys(page)
-    var keyIndex = 0
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        repeat(rows) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                var usedColumns = 0
-                while (usedColumns < columns) {
-                    val key = keys.getOrNull(keyIndex)
-                    if (key == null) {
-                        Spacer(Modifier.weight((columns - usedColumns).toFloat()))
-                        usedColumns = columns
-                    } else {
-                        val span = key.columnSpan.coerceIn(1, columns - usedColumns)
-                        AccessoryDeckKeyButton(
-                            key = renderKey(key),
-                            keyHeight = keyHeight,
-                            textOnly = page == AccessoryDeckPage.NUMERIC,
-                            textScale = if (page == AccessoryDeckPage.NUMERIC) 0.38f else 0.36f,
-                            modifier = Modifier.weight(span.toFloat()),
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            chunkToolbarActions(scrollingActions, toolbarRows).forEach { rowActions ->
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    rowActions.forEach { action ->
+                        AccessoryToolbarActionButton(
+                            action = action,
+                            buttonSize = buttonSize,
+                            contentMode = contentMode,
+                            palette = palette,
                         )
-                        keyIndex += 1
-                        usedColumns += span
                     }
                 }
             }
         }
     }
 }
-
-@Composable
-private fun AccessoryDeckKeyButton(
-    key: AccessoryDeckRenderKey,
-    keyHeight: Int,
-    modifier: Modifier = Modifier,
-    textOnly: Boolean = false,
-    iconOnly: Boolean = false,
-    textScale: Float = 0.36f,
-) {
-    val shape = RoundedCornerShape(14.dp)
-    val latestOnClick = rememberUpdatedState(key.onClick)
-    val pressModifier = if (key.spec.repeatOnHold) {
-        Modifier.pointerInput(key.enabled, key.spec.id) {
-            detectTapGestures(
-                onPress = {
-                    if (!key.enabled) return@detectTapGestures
-                    latestOnClick.value()
-                    kotlinx.coroutines.coroutineScope {
-                        val repeatJob = launch {
-                            delay(accessoryRepeatPressSpec.initialDelayMillis)
-                            var iteration = 0
-                            while (true) {
-                                latestOnClick.value()
-                                delay(repeatDelayForIteration(iteration))
-                                iteration += 1
-                            }
-                        }
-                        try {
-                            tryAwaitRelease()
-                        } finally {
-                            repeatJob.cancel()
-                        }
-                    }
-                },
-            )
-        }
-    } else {
-        Modifier.clickable(enabled = key.enabled, onClick = key.onClick)
-    }
-    val foreground = when {
-        !key.enabled -> Color.White.copy(alpha = 0.34f)
-        key.active -> Color.White
-        else -> Color.White
-    }
-    val background = when {
-        key.active -> Color(0xFF4A4A4A)
-        key.spec.id == AccessoryDeckActionId.INSERT_TEXT -> Color(0xFF101010)
-        key.spec.id == AccessoryDeckActionId.PAGE_DOTS -> Color(0xFF343434)
-        else -> Color(0xFF383838)
-    }
-    val resolvedTextScale = when {
-        key.label.length >= 4 -> minOf(textScale, 0.28f)
-        else -> textScale
-    }
-    Box(
-        modifier = modifier
-            .heightIn(min = keyHeight.dp)
-            .background(background, shape)
-            .border(
-                2.dp,
-                Color.White.copy(alpha = if (key.active) 0.18f else 0.055f),
-                shape,
-            )
-            .then(pressModifier)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (key.icon != null && (!textOnly || iconOnly)) {
-            Icon(
-                key.icon,
-                contentDescription = key.accessibilityLabel,
-                tint = foreground,
-                modifier = Modifier.size(
-                    (keyHeight * when {
-                        key.spec.id.isDeckArrowKey() -> 0.62f
-                        iconOnly -> 0.46f
-                        else -> 0.42f
-                    }).dp,
-                ),
-            )
-        } else {
-            Text(
-                text = key.label,
-                color = foreground,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = (keyHeight * when {
-                        key.spec.id.isDeckArrowKey() -> 0.58f
-                        key.spec.id == AccessoryDeckActionId.PAGE_DOTS -> 0.34f
-                        else -> resolvedTextScale
-                    }).sp,
-                    fontWeight = if (key.spec.id.isDeckArrowKey()) FontWeight.Bold else FontWeight.SemiBold,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-private fun AccessoryDeckActionId.isDeckArrowKey(): Boolean =
-    this == AccessoryDeckActionId.MOVE_UP ||
-        this == AccessoryDeckActionId.MOVE_DOWN ||
-        this == AccessoryDeckActionId.MOVE_LEFT ||
-        this == AccessoryDeckActionId.MOVE_RIGHT
 
 private data class AccessoryToolbarAction(
     val id: AccessoryToolbarButton,
