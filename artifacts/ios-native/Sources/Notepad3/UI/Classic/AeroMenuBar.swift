@@ -136,23 +136,34 @@ final class AeroMenuBar: UIView {
     }
 
     private func makeMenuButton(title: String, provider: @escaping () -> [ClassicMenuPopover.Row]) -> UIButton {
+        let font = UIFont.systemFont(ofSize: 12, weight: .medium)
         var cfg = UIButton.Configuration.plain()
         cfg.title = title
         cfg.baseForegroundColor = palette.foreground
         cfg.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8)
         cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var out = incoming
-            out.font = .systemFont(ofSize: 12, weight: .medium)
+            out.font = font
             return out
         }
 
         let button = UIButton(type: .system)
         button.configuration = cfg
+        button.titleLabel?.numberOfLines = 1
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.menuButtonMinWidth(title: title, font: font)).isActive = true
         button.accessibilityLabel = title
         button.accessibilityTraits = [.button]
         button.addTarget(self, action: #selector(menuButtonTapped(_:)), for: .touchUpInside)
         rowProviders[ObjectIdentifier(button)] = provider
         return button
+    }
+
+    private static func menuButtonMinWidth(title: String, font: UIFont) -> CGFloat {
+        let measured = (title as NSString).size(withAttributes: [.font: font]).width
+        return max(34, ceil(measured) + 18)
     }
 
     private func makeLayoutSwitcherButton() -> UIButton {

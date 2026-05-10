@@ -381,16 +381,18 @@ private final class ClassicToolbarButton: UIControl {
         label.font = .systemFont(ofSize: 10, weight: .regular)
         label.textColor = baseTint
         label.isHidden = !showLabel
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
         label.isUserInteractionEnabled = false
         addSubview(label)
 
         layer.cornerRadius = min(palette.radius, 4)
 
-        let minWidth: CGFloat = showLabel ? 52 : 30
+        let cellWidth: CGFloat = showLabel ? 58 : 30
         let height: CGFloat = showLabel ? 40 : 26
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(greaterThanOrEqualToConstant: minWidth),
+            widthAnchor.constraint(equalToConstant: cellWidth),
             heightAnchor.constraint(equalToConstant: height),
 
             iconView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
@@ -399,8 +401,8 @@ private final class ClassicToolbarButton: UIControl {
             iconView.heightAnchor.constraint(equalToConstant: 18),
 
             label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 2),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 4),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             label.centerXAnchor.constraint(equalTo: centerXAnchor),
         ])
 

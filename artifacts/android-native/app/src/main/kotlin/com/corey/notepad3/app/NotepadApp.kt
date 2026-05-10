@@ -86,6 +86,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1762,7 +1763,11 @@ private fun ClassicMenuButton(
             text = text,
             color = if (selected) palette.primaryForeground.toColor() else palette.foreground.toColor(),
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Normal, fontSize = 12.sp),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
+                .widthIn(min = classicMenuButtonMinWidth(text))
                 .height(23.dp)
                 .background(if (selected) palette.primary.toColor() else Color.Transparent)
                 .clickable { onOpen(if (selected) null else menu) }
@@ -1779,6 +1784,9 @@ private fun ClassicMenuButton(
         }
     }
 }
+
+internal fun classicMenuButtonMinWidth(text: String): Dp =
+    (text.length * 7 + 18).coerceAtLeast(34).dp
 
 @Composable
 private fun ClassicDropdownMenuItem(
@@ -2082,7 +2090,7 @@ private fun ClassicToolbarButton(
     }
     Column(
         modifier = Modifier
-            .defaultMinSize(minWidth = 30.dp)
+            .width(classicToolbarButtonWidth(label))
             .height(25.dp)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 3.dp),
@@ -2092,6 +2100,9 @@ private fun ClassicToolbarButton(
         Icon(icon, contentDescription = label, tint = foreground, modifier = Modifier.size(18.dp))
     }
 }
+
+@Suppress("UNUSED_PARAMETER")
+internal fun classicToolbarButtonWidth(label: String): Dp = 30.dp
 
 @Composable
 private fun ToolbarGlyph(
@@ -3727,9 +3738,11 @@ private fun AccessoryStaticCluster(
     palette: Palette,
 ) {
     val columns = ((actions.size + toolbarRows - 1) / toolbarRows).coerceAtLeast(1)
+    val cellWidth = accessoryToolbarButtonWidth(buttonSize, contentMode)
+    val clusterWidth = (accessoryToolbarButtonWidthDp(buttonSize, contentMode) * columns + 2 * (columns - 1) + 8).dp
     Column(
         modifier = Modifier
-            .width((buttonSize.minWidthDp(contentMode) * columns + 8).dp)
+            .width(clusterWidth)
             .fillMaxHeight()
             .padding(horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -3744,14 +3757,18 @@ private fun AccessoryStaticCluster(
                 repeat(columns) { columnIndex ->
                     val action = actions.getOrNull(rowIndex * columns + columnIndex)
                     if (action == null) {
-                        Spacer(Modifier.weight(1f))
+                        Spacer(
+                            Modifier
+                                .width(cellWidth)
+                                .fillMaxHeight(),
+                        )
                     } else {
                         AccessoryToolbarActionButton(
                             action = action,
                             buttonSize = buttonSize,
                             contentMode = contentMode,
                             palette = palette,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.width(cellWidth),
                         )
                     }
                 }
@@ -3805,7 +3822,7 @@ private fun AccessoryToolbarActionButton(
     val showText = contentMode != AccessoryToolbarContentMode.ICON_ONLY || action.icon == null
     Box(
         modifier = modifier
-            .defaultMinSize(minWidth = buttonSize.minWidthDp(contentMode).dp)
+            .width(accessoryToolbarButtonWidth(buttonSize, contentMode, action.label))
             .fillMaxHeight()
             .background(if (action.active) palette.muted.toColor() else Color.Transparent, RoundedCornerShape(3.dp))
             .then(pressModifier),
@@ -3815,7 +3832,9 @@ private fun AccessoryToolbarActionButton(
             showIcon && showText -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
             ) {
                 Icon(action.icon, contentDescription = action.label, tint = color, modifier = Modifier.size(buttonSize.iconDp.dp))
                 Text(
@@ -3827,6 +3846,7 @@ private fun AccessoryToolbarActionButton(
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    softWrap = false,
                 )
             }
             showIcon -> Icon(
@@ -3844,6 +3864,7 @@ private fun AccessoryToolbarActionButton(
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                softWrap = false,
                 modifier = Modifier.padding(horizontal = 5.dp),
             )
         }
@@ -3879,6 +3900,18 @@ private val AccessoryToolbarButtonSize.labelSp: Int
         AccessoryToolbarButtonSize.MEDIUM -> 9
         AccessoryToolbarButtonSize.LARGE -> 11
     }
+
+@Suppress("UNUSED_PARAMETER")
+internal fun accessoryToolbarButtonWidth(
+    size: AccessoryToolbarButtonSize,
+    contentMode: AccessoryToolbarContentMode,
+    label: String = "",
+): Dp = accessoryToolbarButtonWidthDp(size, contentMode).dp
+
+private fun accessoryToolbarButtonWidthDp(
+    size: AccessoryToolbarButtonSize,
+    contentMode: AccessoryToolbarContentMode,
+): Int = size.minWidthDp(contentMode)
 
 private fun AccessoryToolbarButtonSize.minWidthDp(contentMode: AccessoryToolbarContentMode): Int =
     when (contentMode) {

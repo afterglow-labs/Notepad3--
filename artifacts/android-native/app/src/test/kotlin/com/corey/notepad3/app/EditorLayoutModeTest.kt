@@ -22,6 +22,32 @@ class EditorLayoutModeTest {
     }
 
     @Test
+    fun classicMenuButtonsGrowWithTheirLabels() {
+        val fileWidth = classicMenuButtonMinWidth("File")
+        val languageWidth = classicMenuButtonMinWidth("Language")
+
+        assertTrue(languageWidth > fileWidth)
+        assertTrue(languageWidth.value >= 70f)
+    }
+
+    @Test
+    fun classicToolbarButtonsKeepConsistentCellWidths() {
+        assertEquals(classicToolbarButtonWidth("Cut"), classicToolbarButtonWidth("Duplicate line"))
+        assertEquals(
+            accessoryToolbarButtonWidth(
+                AccessoryToolbarButtonSize.MEDIUM,
+                AccessoryToolbarContentMode.ICON_AND_TEXT,
+                "Up",
+            ),
+            accessoryToolbarButtonWidth(
+                AccessoryToolbarButtonSize.MEDIUM,
+                AccessoryToolbarContentMode.ICON_AND_TEXT,
+                "Show keyboard",
+            ),
+        )
+    }
+
+    @Test
     fun storageNamesRoundTripForPreferences() {
         assertEquals("mobile", EditorLayoutMode.MOBILE.storageName)
         assertEquals("classic", EditorLayoutMode.CLASSIC.storageName)
