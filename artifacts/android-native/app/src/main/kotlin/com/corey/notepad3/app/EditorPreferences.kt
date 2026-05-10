@@ -30,6 +30,15 @@ enum class AccessoryToolbarButton(val storageName: String, val displayTitle: Str
     ;
 
     companion object {
+        val navigationClusterButtons: Set<AccessoryToolbarButton> = setOf(
+            SHIFT,
+            MOVE_UP,
+            DELETE_BACKWARD,
+            MOVE_LEFT,
+            MOVE_DOWN,
+            MOVE_RIGHT,
+        )
+
         fun fromStorageName(value: String): AccessoryToolbarButton? =
             if (value == "undo" || value == "redo") {
                 UNDO_REDO

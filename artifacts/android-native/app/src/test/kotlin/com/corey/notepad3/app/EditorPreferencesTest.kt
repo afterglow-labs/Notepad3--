@@ -135,4 +135,21 @@ class EditorPreferencesTest {
 
         assertEquals(setOf("undo_redo"), decoded)
     }
+
+    @Test
+    fun undoRedoStaysPinnedOutsideTheArrowClusterByDefault() {
+        assertTrue(EditorDisplayOptions.DEFAULT_STATIC_ACCESSORY_BUTTONS.contains(AccessoryToolbarButton.UNDO_REDO))
+        assertFalse(AccessoryToolbarButton.navigationClusterButtons.contains(AccessoryToolbarButton.UNDO_REDO))
+        assertEquals(
+            setOf(
+                AccessoryToolbarButton.SHIFT,
+                AccessoryToolbarButton.MOVE_UP,
+                AccessoryToolbarButton.DELETE_BACKWARD,
+                AccessoryToolbarButton.MOVE_LEFT,
+                AccessoryToolbarButton.MOVE_DOWN,
+                AccessoryToolbarButton.MOVE_RIGHT,
+            ),
+            AccessoryToolbarButton.navigationClusterButtons,
+        )
+    }
 }

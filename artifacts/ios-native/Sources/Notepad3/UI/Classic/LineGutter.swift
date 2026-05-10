@@ -98,6 +98,12 @@ final class LineGutter: UIView {
         setNeedsDisplay()
     }
 
+    func refreshText() {
+        cacheNeedsRebuild = true
+        rebuildLineCache()
+        setNeedsDisplay()
+    }
+
     // MARK: - Drawing
 
     override func draw(_ rect: CGRect) {
@@ -115,6 +121,7 @@ final class LineGutter: UIView {
         let layoutManager = textView.layoutManager
         let textContainer = textView.textContainer
         let nsText = cachedText as NSString
+        layoutManager.ensureLayout(for: textContainer)
 
         let lineHeight = font.lineHeight
         let baselineOffset: CGFloat = textView.textContainerInset.top - textView.contentOffset.y

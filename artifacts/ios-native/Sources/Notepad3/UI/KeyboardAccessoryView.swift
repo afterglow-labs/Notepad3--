@@ -73,7 +73,6 @@ final class KeyboardAccessoryView: UIView {
     var onReadToggle: (() -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
-    var onUndoRedoMenu: ((UIView) -> Void)?
     var onCut: (() -> Void)?
     var onCopy: (() -> Void)?
     var onPaste: (() -> Void)?
@@ -100,11 +99,12 @@ final class KeyboardAccessoryView: UIView {
 
     // Static "virtual D-pad" cluster pinned to the leading edge. Always
     // visible regardless of accessoryRows, scrolling, or whatever the rest
-    // of the bar is up to. A three-column arrow/edit grid is followed by a
-    // single full-height Undo/Redo flyout button when pinned.
+    // of the bar is up to. Undo/Redo is a separate fixed button after the
+    // divider so it has room and does not sit under the arrow-key thumb path.
     private let clusterContainer = UIView()
     private let clusterGridContainer = UIView()
     private let clusterDivider = UIView()
+    private let staticActionDivider = UIView()
     private let clusterShift: KbButton
     private let clusterUp: KbHoldButton
     private let clusterDelete: KbHoldButton
@@ -114,6 +114,7 @@ final class KeyboardAccessoryView: UIView {
     private let clusterRight: KbHoldButton
     private var clusterWidthConstraint: NSLayoutConstraint?
     private var clusterDividerWidthConstraint: NSLayoutConstraint?
+    private var staticActionDividerWidthConstraint: NSLayoutConstraint?
 
     private var palette: Palette = .light
 
@@ -128,6 +129,7 @@ final class KeyboardAccessoryView: UIView {
 
     private var allButtons: [KbButton] = []
     private var allSeparators: [UIView] = []
+    private var undoRedoFlyout: UIView?
 
     // MARK: - Init
 
@@ -160,10 +162,6 @@ final class KeyboardAccessoryView: UIView {
             sv.translatesAutoresizingMaskIntoConstraints = false
             sv.showsHorizontalScrollIndicator = false
             sv.alwaysBounceHorizontal = false
-            sv.delaysContentTouches = false
-            sv.canCancelContentTouches = true
-            sv.panGestureRecognizer.delaysTouchesBegan = false
-            sv.panGestureRecognizer.delaysTouchesEnded = false
             sv.keyboardDismissMode = .none
             addSubview(sv)
         }
@@ -177,8 +175,7 @@ final class KeyboardAccessoryView: UIView {
         topScroll.addSubview(topStack)
         bottomScroll.addSubview(bottomStack)
 
-        // Build the fixed edit cluster: 3x2 arrow/edit grid plus a single
-        // full-height Undo/Redo flyout button.
+        // Build the fixed edit cluster: a 3x2 arrow/edit grid.
         clusterContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(clusterContainer)
         clusterGridContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -196,15 +193,19 @@ final class KeyboardAccessoryView: UIView {
         clusterGridContainer.addSubview(topCluster)
         clusterGridContainer.addSubview(botCluster)
         clusterUndoRedo.translatesAutoresizingMaskIntoConstraints = false
-        clusterContainer.addSubview(clusterUndoRedo)
+        addSubview(clusterUndoRedo)
 
         clusterDivider.translatesAutoresizingMaskIntoConstraints = false
         addSubview(clusterDivider)
+        staticActionDivider.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(staticActionDivider)
 
-        let clusterWidth = clusterContainer.widthAnchor.constraint(equalToConstant: 176)
+        let clusterWidth = clusterContainer.widthAnchor.constraint(equalToConstant: 134)
         let dividerWidth = clusterDivider.widthAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
+        let trailingDividerWidth = staticActionDivider.widthAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
         clusterWidthConstraint = clusterWidth
         clusterDividerWidthConstraint = dividerWidth
+        staticActionDividerWidthConstraint = trailingDividerWidth
 
         NSLayoutConstraint.activate([
             topBorder.topAnchor.constraint(equalTo: topAnchor),
@@ -224,6 +225,16 @@ final class KeyboardAccessoryView: UIView {
             clusterDivider.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             dividerWidth,
 
+            clusterUndoRedo.leadingAnchor.constraint(equalTo: clusterDivider.trailingAnchor, constant: 8),
+            clusterUndoRedo.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            clusterUndoRedo.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            clusterUndoRedo.widthAnchor.constraint(equalToConstant: 88),
+
+            staticActionDivider.leadingAnchor.constraint(equalTo: clusterUndoRedo.trailingAnchor, constant: 8),
+            staticActionDivider.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            staticActionDivider.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            trailingDividerWidth,
+
             clusterGridContainer.leadingAnchor.constraint(equalTo: clusterContainer.leadingAnchor),
             clusterGridContainer.topAnchor.constraint(equalTo: clusterContainer.topAnchor),
             clusterGridContainer.bottomAnchor.constraint(equalTo: clusterContainer.bottomAnchor),
@@ -239,10 +250,6 @@ final class KeyboardAccessoryView: UIView {
             botCluster.trailingAnchor.constraint(equalTo: clusterGridContainer.trailingAnchor),
             botCluster.bottomAnchor.constraint(equalTo: clusterGridContainer.bottomAnchor),
 
-            clusterUndoRedo.leadingAnchor.constraint(equalTo: clusterGridContainer.trailingAnchor, constant: 2),
-            clusterUndoRedo.trailingAnchor.constraint(equalTo: clusterContainer.trailingAnchor),
-            clusterUndoRedo.topAnchor.constraint(equalTo: clusterContainer.topAnchor),
-            clusterUndoRedo.bottomAnchor.constraint(equalTo: clusterContainer.bottomAnchor),
         ])
         updateStaticClusterVisibility()
     }
@@ -253,7 +260,7 @@ final class KeyboardAccessoryView: UIView {
         clusterDelete.tickHandler = { [weak self] in self?.onDelete?() }
         clusterUndoRedo.onTap = { [weak self, weak clusterUndoRedo] in
             guard let clusterUndoRedo else { return }
-            self?.onUndoRedoMenu?(clusterUndoRedo)
+            self?.showUndoRedoFlyout(from: clusterUndoRedo)
         }
         clusterLeft.tickHandler   = { [weak self] in self?.onArrow?(.left) }
         clusterDown.tickHandler   = { [weak self] in self?.onArrow?(.down) }
@@ -261,15 +268,25 @@ final class KeyboardAccessoryView: UIView {
     }
 
     private var staticClusterButtonIds: Set<AccessoryToolbarButton> {
-        Set(AccessoryToolbarButton.staticCandidates)
+        Set(AccessoryToolbarButton.staticCandidates).subtracting([.undoRedo])
     }
 
     private func isPinnedToStaticCluster(_ button: AccessoryToolbarButton) -> Bool {
         staticClusterButtonIds.contains(button) && staticButtons.contains(button) && !hiddenButtons.contains(button)
     }
 
+    private func isPinnedToAnyStaticSlot(_ button: AccessoryToolbarButton) -> Bool {
+        AccessoryToolbarButton.staticCandidates.contains(button)
+            && staticButtons.contains(button)
+            && !hiddenButtons.contains(button)
+    }
+
+    private func isPinnedUndoRedoButton() -> Bool {
+        isPinnedToAnyStaticSlot(.undoRedo)
+    }
+
     private func isAvailableInScrollingToolbar(_ button: AccessoryToolbarButton) -> Bool {
-        !hiddenButtons.contains(button) && !isPinnedToStaticCluster(button)
+        !hiddenButtons.contains(button) && !isPinnedToAnyStaticSlot(button)
     }
 
     private func updateStaticClusterVisibility() {
@@ -277,7 +294,6 @@ final class KeyboardAccessoryView: UIView {
             (.shift, clusterShift),
             (.moveUp, clusterUp),
             (.deleteBackward, clusterDelete),
-            (.undoRedo, clusterUndoRedo),
             (.moveLeft, clusterLeft),
             (.moveDown, clusterDown),
             (.moveRight, clusterRight),
@@ -288,11 +304,14 @@ final class KeyboardAccessoryView: UIView {
             view.isHidden = !visible
             anyVisible = anyVisible || visible
         }
-        let undoRedoVisible = isPinnedToStaticCluster(.undoRedo)
+        let undoRedoVisible = isPinnedUndoRedoButton()
+        clusterUndoRedo.isHidden = !undoRedoVisible
         clusterContainer.isHidden = !anyVisible
         clusterDivider.isHidden = !anyVisible
-        clusterWidthConstraint?.constant = anyVisible ? (undoRedoVisible ? 178 : 134) : 0
+        staticActionDivider.isHidden = !undoRedoVisible
+        clusterWidthConstraint?.constant = anyVisible ? 134 : 0
         clusterDividerWidthConstraint?.constant = anyVisible ? (1 / UIScreen.main.scale) : 0
+        staticActionDividerWidthConstraint?.constant = undoRedoVisible ? (1 / UIScreen.main.scale) : 0
         updateUndoRedoEnabled()
     }
 
@@ -318,6 +337,7 @@ final class KeyboardAccessoryView: UIView {
     private var activeConstraints: [NSLayoutConstraint] = []
 
     private func rebuildLayout() {
+        dismissUndoRedoFlyout(animated: false)
         updateStaticClusterVisibility()
         // Tear down existing button subviews / constraints.
         NSLayoutConstraint.deactivate(activeConstraints)
@@ -334,7 +354,7 @@ final class KeyboardAccessoryView: UIView {
 
         // Split across rows if requested.
         // Scrolling part starts after the cluster + divider.
-        let scrollLeading = clusterDivider.trailingAnchor
+        let scrollLeading = isPinnedUndoRedoButton() ? staticActionDivider.trailingAnchor : clusterDivider.trailingAnchor
 
         let rowHeight = accessoryRowHeight
         if rows == .double {
@@ -453,7 +473,7 @@ final class KeyboardAccessoryView: UIView {
         ) { }
         undoRedo.onTap = { [weak self, weak undoRedo] in
             guard let undoRedo else { return }
-            self?.onUndoRedoMenu?(undoRedo)
+            self?.showUndoRedoFlyout(from: undoRedo)
         }
         undoRedo.isDisabled = !canUndo && !canRedo
         undoRedoButton = undoRedo
@@ -553,7 +573,101 @@ final class KeyboardAccessoryView: UIView {
         topBorder.backgroundColor = p.border
         middleBorder.backgroundColor = p.border
         clusterDivider.backgroundColor = p.border
+        staticActionDivider.backgroundColor = p.border
         applyPaletteToButtons()
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if super.point(inside: point, with: event) {
+            return true
+        }
+        guard let flyout = undoRedoFlyout, !flyout.isHidden else {
+            return false
+        }
+        let localPoint = flyout.convert(point, from: self)
+        return flyout.point(inside: localPoint, with: event)
+    }
+
+    private func showUndoRedoFlyout(from source: UIView) {
+        if undoRedoFlyout != nil {
+            dismissUndoRedoFlyout(animated: false)
+        }
+
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = true
+        container.backgroundColor = palette.card
+        container.layer.cornerRadius = 8
+        container.layer.borderWidth = 1 / UIScreen.main.scale
+        container.layer.borderColor = palette.border.cgColor
+        container.layer.shadowColor = UIColor.black.cgColor
+        container.layer.shadowOpacity = 0.18
+        container.layer.shadowRadius = 8
+        container.layer.shadowOffset = CGSize(width: 0, height: 3)
+        container.alpha = 0
+        container.transform = CGAffineTransform(scaleX: 0.94, y: 0.94)
+
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.alignment = .fill
+        stack.distribution = .fillEqually
+        stack.spacing = 4
+        container.addSubview(stack)
+
+        let undo = KbButton(symbol: "arrow.uturn.backward", label: "Undo") { [weak self] in
+            self?.dismissUndoRedoFlyout(animated: true)
+            self?.onUndo?()
+        }
+        undo.isDisabled = !canUndo
+        let redo = KbButton(symbol: "arrow.uturn.forward", label: "Redo") { [weak self] in
+            self?.dismissUndoRedoFlyout(animated: true)
+            self?.onRedo?()
+        }
+        redo.isDisabled = !canRedo
+        for button in [undo, redo] {
+            button.configureDisplay(size: buttonSize, contentMode: .iconAndText)
+            button.applyPalette(palette)
+            stack.addArrangedSubview(button)
+        }
+
+        addSubview(container)
+        undoRedoFlyout = container
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 5),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 5),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -5),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -5),
+        ])
+
+        layoutIfNeeded()
+        let sourceFrame = source.convert(source.bounds, to: self)
+        let width: CGFloat = 124
+        let height: CGFloat = 50
+        let x = max(4, min(bounds.width - width - 4, sourceFrame.midX - width / 2))
+        let y = sourceFrame.minY - height - 6
+        container.frame = CGRect(x: x, y: y, width: width, height: height)
+
+        UIView.animate(withDuration: 0.09, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
+            container.alpha = 1
+            container.transform = .identity
+        }
+    }
+
+    private func dismissUndoRedoFlyout(animated: Bool) {
+        guard let flyout = undoRedoFlyout else { return }
+        undoRedoFlyout = nil
+        let remove = { flyout.removeFromSuperview() }
+        guard animated else {
+            remove()
+            return
+        }
+        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+            flyout.alpha = 0
+            flyout.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+        } completion: { _ in
+            remove()
+        }
     }
 
     private func applyDisplayOptionsToButtons() {
@@ -639,6 +753,8 @@ private class KbButton: UIControl {
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.minimumScaleFactor = 0.75
         titleLabel.text = label
         contentStack.addArrangedSubview(titleLabel)
 
@@ -657,7 +773,14 @@ private class KbButton: UIControl {
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
+        addTarget(self, action: #selector(tapped), for: .touchUpInside)
         configureDisplay(size: .medium, contentMode: .iconAndText)
+    }
+
+    @objc private func tapped() {
+        guard !isDisabled, let onTap else { return }
+        Haptics.selectionChanged()
+        onTap()
     }
 
     func setSymbol(_ name: String) {
@@ -737,30 +860,6 @@ private class KbButton: UIControl {
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         expandedHitBounds.contains(point)
-    }
-
-    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        guard !isDisabled else { return false }
-        isHighlighted = true
-        return true
-    }
-
-    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        isHighlighted = containsInteractivePoint(touch.location(in: self))
-        return true
-    }
-
-    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        defer { isHighlighted = false }
-        guard !isDisabled else { return }
-        if let touch, containsInteractivePoint(touch.location(in: self)) {
-            Haptics.selectionChanged()
-            onTap?()
-        }
-    }
-
-    override func cancelTracking(with event: UIEvent?) {
-        isHighlighted = false
     }
 
     func containsInteractivePoint(_ point: CGPoint) -> Bool {
@@ -868,6 +967,7 @@ private final class KbHoldButton: KbButton {
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         guard super.beginTracking(touch, with: event) else { return false }
+        isHighlighted = true
         hasFiredDuringTracking = false
         repeatCount = 0
         initialDelayTimer?.invalidate()

@@ -82,6 +82,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -89,9 +90,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.corey.notepad3.editor.EditResult
 import com.corey.notepad3.editor.EditorCommands
 import com.corey.notepad3.editor.EditorGutter
@@ -3674,6 +3678,8 @@ private fun MobileKeyboardAccessory(
     )
     val visibleActions = allActions.filterNot { it.id in displayOptions.hiddenAccessoryButtons }
     val staticActions = visibleActions.filter { it.id in displayOptions.staticAccessoryButtons }
+    val navigationStaticActions = staticActions.filter { it.id in AccessoryToolbarButton.navigationClusterButtons }
+    val detachedStaticActions = staticActions.filterNot { it.id in AccessoryToolbarButton.navigationClusterButtons }
     val scrollingActions = visibleActions.filterNot { it.id in displayOptions.staticAccessoryButtons }
 
     Row(
@@ -3685,9 +3691,9 @@ private fun MobileKeyboardAccessory(
             .padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (staticActions.isNotEmpty()) {
+        if (navigationStaticActions.isNotEmpty()) {
             AccessoryStaticCluster(
-                actions = staticActions,
+                actions = navigationStaticActions,
                 toolbarRows = toolbarRows,
                 buttonSize = buttonSize,
                 contentMode = contentMode,
@@ -3699,6 +3705,22 @@ private fun MobileKeyboardAccessory(
                     .width(1.dp)
                     .background(palette.border.toColor()),
             )
+        }
+        if (detachedStaticActions.isNotEmpty()) {
+            StaticToolbarActions(
+                actions = detachedStaticActions,
+                buttonSize = buttonSize,
+                contentMode = contentMode,
+                palette = palette,
+            )
+            if (scrollingActions.isNotEmpty()) {
+                Spacer(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(1.dp)
+                        .background(palette.border.toColor()),
+                )
+            }
         }
         Column(
             modifier = Modifier
@@ -3796,6 +3818,32 @@ private fun AccessoryStaticCluster(
 }
 
 @Composable
+private fun StaticToolbarActions(
+    actions: List<AccessoryToolbarAction>,
+    buttonSize: AccessoryToolbarButtonSize,
+    contentMode: AccessoryToolbarContentMode,
+    palette: Palette,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxHeight()
+            .padding(horizontal = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        actions.forEach { action ->
+            AccessoryToolbarActionButton(
+                action = action,
+                buttonSize = buttonSize,
+                contentMode = contentMode,
+                palette = palette,
+                modifier = Modifier.width(accessoryToolbarButtonWidth(buttonSize, contentMode, action.label)),
+            )
+        }
+    }
+}
+
+@Composable
 private fun AccessoryToolbarActionButton(
     action: AccessoryToolbarAction,
     buttonSize: AccessoryToolbarButtonSize,
@@ -3812,6 +3860,8 @@ private fun AccessoryToolbarActionButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val latestOnClick = rememberUpdatedState(action.onClick)
+    val density = LocalDensity.current
+    val flyoutOffset = with(density) { -((buttonSize.rowHeightDp + 14).dp.roundToPx()) }
     val repeats = action.id.repeatsOnHold
     if (repeats) {
         LaunchedEffect(isPressed, action.enabled) {
@@ -3893,33 +3943,66 @@ private fun AccessoryToolbarActionButton(
                 modifier = Modifier.padding(horizontal = 5.dp),
             )
         }
-        if (action.menuItems.isNotEmpty()) {
-            DropdownMenu(
-                expanded = menuExpanded,
+        if (action.menuItems.isNotEmpty() && menuExpanded) {
+            Popup(
+                alignment = Alignment.TopCenter,
+                offset = IntOffset(0, flyoutOffset),
                 onDismissRequest = { menuExpanded = false },
+                properties = PopupProperties(focusable = true),
             ) {
-                action.menuItems.forEach { item ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = item.label,
-                                color = if (item.enabled) palette.foreground.toColor() else palette.mutedForeground.toColor(),
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                item.icon,
-                                contentDescription = null,
-                                tint = if (item.enabled) palette.foreground.toColor() else palette.mutedForeground.toColor(),
-                            )
-                        },
-                        enabled = item.enabled,
-                        onClick = {
-                            menuExpanded = false
-                            item.onClick()
-                        },
-                    )
-                }
+                UndoRedoFlyout(
+                    items = action.menuItems,
+                    buttonSize = buttonSize,
+                    palette = palette,
+                    onDismiss = { menuExpanded = false },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UndoRedoFlyout(
+    items: List<AccessoryToolbarMenuItem>,
+    buttonSize: AccessoryToolbarButtonSize,
+    palette: Palette,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .background(palette.card.toColor(), RoundedCornerShape(8.dp))
+            .border(1.dp, palette.border.toColor(), RoundedCornerShape(8.dp))
+            .padding(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        items.forEach { item ->
+            val color = if (item.enabled) palette.foreground.toColor() else palette.mutedForeground.toColor()
+            Column(
+                modifier = Modifier
+                    .width(54.dp)
+                    .height((buttonSize.rowHeightDp + 2).dp)
+                    .background(Color.Transparent, RoundedCornerShape(4.dp))
+                    .clickable(enabled = item.enabled) {
+                        onDismiss()
+                        item.onClick()
+                    }
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(item.icon, contentDescription = item.label, tint = color, modifier = Modifier.size(buttonSize.iconDp.dp))
+                Text(
+                    text = item.label,
+                    color = color,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = buttonSize.labelSp.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    softWrap = false,
+                )
             }
         }
     }
