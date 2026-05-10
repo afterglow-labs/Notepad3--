@@ -386,6 +386,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         accessory.onReadToggle = { [weak self] in self?.readMode.toggle() }
         accessory.onUndo = { [weak self] in self?.textView.undoManager?.undo() }
         accessory.onRedo = { [weak self] in self?.textView.undoManager?.redo() }
+        accessory.onUndoRedoMenu = { [weak self] source in self?.presentUndoRedoMenu(from: source) }
         accessory.onCut = { [weak self] in self?.cutSelection() }
         accessory.onCopy = { [weak self] in self?.copySelection() }
         accessory.onPaste = { [weak self] in self?.pasteFromClipboard() }
@@ -1335,6 +1336,32 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         let nav = UINavigationController(rootViewController: compare)
         compare.onClose = { [weak nav] in nav?.dismiss(animated: true) }
         present(nav, animated: true)
+    }
+
+    private func presentUndoRedoMenu(from source: UIView) {
+        let menu = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        let undo = UIAlertAction(title: "Undo", style: .default) { [weak self] _ in
+            self?.textView.undoManager?.undo()
+        }
+        undo.setValue(UIImage(systemName: "arrow.uturn.backward"), forKey: "image")
+        undo.isEnabled = textView.undoManager?.canUndo ?? false
+
+        let redo = UIAlertAction(title: "Redo", style: .default) { [weak self] _ in
+            self?.textView.undoManager?.redo()
+        }
+        redo.setValue(UIImage(systemName: "arrow.uturn.forward"), forKey: "image")
+        redo.isEnabled = textView.undoManager?.canRedo ?? false
+
+        menu.addAction(undo)
+        menu.addAction(redo)
+        menu.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = menu.popoverPresentationController {
+            popover.sourceView = source
+            popover.sourceRect = source.bounds
+            popover.permittedArrowDirections = [.up, .down]
+        }
+        present(menu, animated: true)
     }
 
     private func presentLanguagePicker() {

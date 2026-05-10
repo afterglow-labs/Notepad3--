@@ -78,8 +78,9 @@ class EditorPreferencesTest {
 
         assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.SHIFT))
         assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.MOVE_LEFT))
-        assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.UNDO))
-        assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.REDO))
+        assertTrue(controller.displayOptions.value.staticAccessoryButtons.any { it.storageName == "undo_redo" })
+        assertFalse(controller.displayOptions.value.staticAccessoryButtons.any { it.storageName == "undo" })
+        assertFalse(controller.displayOptions.value.staticAccessoryButtons.any { it.storageName == "redo" })
         assertFalse(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.CUT))
 
         controller.toggleStaticAccessoryButton(AccessoryToolbarButton.CUT)
@@ -117,7 +118,21 @@ class EditorPreferencesTest {
 
         assertTrue(displayTitles.contains("Find"))
         assertTrue(displayTitles.contains("Hide"))
+        assertTrue(displayTitles.contains("Undo/Redo"))
+        assertFalse(AccessoryToolbarButton.entries.map { it.storageName }.contains("undo"))
+        assertFalse(AccessoryToolbarButton.entries.map { it.storageName }.contains("redo"))
         assertFalse(displayTitles.contains("Replace"))
         assertFalse(AccessoryToolbarButton.entries.any { it.storageName == "replace" })
+    }
+
+    @Test
+    fun legacyUndoRedoStorageNamesDecodeToCombinedToolbarButton() {
+        val decoded = setOf(
+            AccessoryToolbarButton.fromStorageName("undo")?.storageName,
+            AccessoryToolbarButton.fromStorageName("redo")?.storageName,
+            AccessoryToolbarButton.fromStorageName("undo_redo")?.storageName,
+        )
+
+        assertEquals(setOf("undo_redo"), decoded)
     }
 }

@@ -43,10 +43,10 @@ final class KeyboardAccessoryView: UIView {
         didSet { readButton?.setSymbol(readMode ? "eye" : "eye.slash"); readButton?.isActive = readMode; applyPaletteToButtons() }
     }
     var canUndo: Bool = true {
-        didSet { undoButton?.isDisabled = !canUndo; clusterUndo.isDisabled = !canUndo; applyPaletteToButtons() }
+        didSet { updateUndoRedoEnabled() }
     }
     var canRedo: Bool = true {
-        didSet { redoButton?.isDisabled = !canRedo; clusterRedo.isDisabled = !canRedo; applyPaletteToButtons() }
+        didSet { updateUndoRedoEnabled() }
     }
     var hasSelection: Bool = false {
         didSet { cutButton?.isDisabled = !hasSelection; applyPaletteToButtons() }
@@ -73,6 +73,7 @@ final class KeyboardAccessoryView: UIView {
     var onReadToggle: (() -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
+    var onUndoRedoMenu: ((UIView) -> Void)?
     var onCut: (() -> Void)?
     var onCopy: (() -> Void)?
     var onPaste: (() -> Void)?
@@ -99,19 +100,18 @@ final class KeyboardAccessoryView: UIView {
 
     // Static "virtual D-pad" cluster pinned to the leading edge. Always
     // visible regardless of accessoryRows, scrolling, or whatever the rest
-    // of the bar is up to. 4 columns × 2 rows:
-    //   top: [Shift] [↑]  [Delete] [Undo]
-    //   bot: [ ←  ] [↓]  [  →   ] [Redo]
+    // of the bar is up to. A three-column arrow/edit grid is followed by a
+    // single full-height Undo/Redo flyout button when pinned.
     private let clusterContainer = UIView()
+    private let clusterGridContainer = UIView()
     private let clusterDivider = UIView()
     private let clusterShift: KbButton
     private let clusterUp: KbHoldButton
     private let clusterDelete: KbHoldButton
-    private let clusterUndo: KbButton
+    private let clusterUndoRedo: KbButton
     private let clusterLeft: KbHoldButton
     private let clusterDown: KbHoldButton
     private let clusterRight: KbHoldButton
-    private let clusterRedo: KbButton
     private var clusterWidthConstraint: NSLayoutConstraint?
     private var clusterDividerWidthConstraint: NSLayoutConstraint?
 
@@ -120,8 +120,7 @@ final class KeyboardAccessoryView: UIView {
     // Button references we toggle in the scrolling part.
     private weak var hideButton: KbButton?
     private weak var readButton: KbButton?
-    private weak var undoButton: KbButton?
-    private weak var redoButton: KbButton?
+    private weak var undoRedoButton: KbButton?
     private weak var cutButton: KbButton?
     private weak var findButton: KbButton?
     private weak var shiftButton: KbButton?
@@ -138,11 +137,10 @@ final class KeyboardAccessoryView: UIView {
         clusterShift  = KbButton(symbol: "shift", label: "Shift") { }
         clusterUp     = KbHoldButton(symbol: "arrow.up", label: "Up") { }
         clusterDelete = KbHoldButton(symbol: "delete.left", label: "Delete", repeatBehavior: .delete) { }
-        clusterUndo   = KbButton(symbol: "arrow.uturn.backward", label: "Undo") { }
+        clusterUndoRedo = KbButton(symbol: "arrow.uturn.backward", label: "Undo/Redo", customImage: KeyboardAccessoryView.makeUndoRedoImage()) { }
         clusterLeft   = KbHoldButton(symbol: "arrow.left", label: "Left") { }
         clusterDown   = KbHoldButton(symbol: "arrow.down", label: "Down") { }
         clusterRight  = KbHoldButton(symbol: "arrow.right", label: "Right") { }
-        clusterRedo   = KbButton(symbol: "arrow.uturn.forward", label: "Redo") { }
         super.init(frame: frame)
         autoresizingMask = [.flexibleWidth]
         setupBase()
@@ -179,12 +177,15 @@ final class KeyboardAccessoryView: UIView {
         topScroll.addSubview(topStack)
         bottomScroll.addSubview(bottomStack)
 
-        // Build the 3×2 cluster.
+        // Build the fixed edit cluster: 3x2 arrow/edit grid plus a single
+        // full-height Undo/Redo flyout button.
         clusterContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(clusterContainer)
+        clusterGridContainer.translatesAutoresizingMaskIntoConstraints = false
+        clusterContainer.addSubview(clusterGridContainer)
 
-        let topCluster = UIStackView(arrangedSubviews: [clusterShift, clusterUp, clusterDelete, clusterUndo])
-        let botCluster = UIStackView(arrangedSubviews: [clusterLeft, clusterDown, clusterRight, clusterRedo])
+        let topCluster = UIStackView(arrangedSubviews: [clusterShift, clusterUp, clusterDelete])
+        let botCluster = UIStackView(arrangedSubviews: [clusterLeft, clusterDown, clusterRight])
         for st in [topCluster, botCluster] {
             st.translatesAutoresizingMaskIntoConstraints = false
             st.axis = .horizontal
@@ -192,8 +193,10 @@ final class KeyboardAccessoryView: UIView {
             st.distribution = .fillEqually
             st.spacing = 2
         }
-        clusterContainer.addSubview(topCluster)
-        clusterContainer.addSubview(botCluster)
+        clusterGridContainer.addSubview(topCluster)
+        clusterGridContainer.addSubview(botCluster)
+        clusterUndoRedo.translatesAutoresizingMaskIntoConstraints = false
+        clusterContainer.addSubview(clusterUndoRedo)
 
         clusterDivider.translatesAutoresizingMaskIntoConstraints = false
         addSubview(clusterDivider)
@@ -209,7 +212,7 @@ final class KeyboardAccessoryView: UIView {
             topBorder.trailingAnchor.constraint(equalTo: trailingAnchor),
             topBorder.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
 
-            // Cluster — fixed four-column block, fills the bar's height.
+            // Cluster — fixed arrow/edit block, fills the bar's height.
             clusterContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             clusterContainer.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             clusterContainer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
@@ -221,15 +224,25 @@ final class KeyboardAccessoryView: UIView {
             clusterDivider.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             dividerWidth,
 
-            topCluster.topAnchor.constraint(equalTo: clusterContainer.topAnchor),
-            topCluster.leadingAnchor.constraint(equalTo: clusterContainer.leadingAnchor),
-            topCluster.trailingAnchor.constraint(equalTo: clusterContainer.trailingAnchor),
-            topCluster.heightAnchor.constraint(equalTo: clusterContainer.heightAnchor, multiplier: 0.5, constant: -1),
+            clusterGridContainer.leadingAnchor.constraint(equalTo: clusterContainer.leadingAnchor),
+            clusterGridContainer.topAnchor.constraint(equalTo: clusterContainer.topAnchor),
+            clusterGridContainer.bottomAnchor.constraint(equalTo: clusterContainer.bottomAnchor),
+            clusterGridContainer.widthAnchor.constraint(equalToConstant: 132),
+
+            topCluster.topAnchor.constraint(equalTo: clusterGridContainer.topAnchor),
+            topCluster.leadingAnchor.constraint(equalTo: clusterGridContainer.leadingAnchor),
+            topCluster.trailingAnchor.constraint(equalTo: clusterGridContainer.trailingAnchor),
+            topCluster.heightAnchor.constraint(equalTo: clusterGridContainer.heightAnchor, multiplier: 0.5, constant: -1),
 
             botCluster.topAnchor.constraint(equalTo: topCluster.bottomAnchor, constant: 2),
-            botCluster.leadingAnchor.constraint(equalTo: clusterContainer.leadingAnchor),
-            botCluster.trailingAnchor.constraint(equalTo: clusterContainer.trailingAnchor),
-            botCluster.bottomAnchor.constraint(equalTo: clusterContainer.bottomAnchor),
+            botCluster.leadingAnchor.constraint(equalTo: clusterGridContainer.leadingAnchor),
+            botCluster.trailingAnchor.constraint(equalTo: clusterGridContainer.trailingAnchor),
+            botCluster.bottomAnchor.constraint(equalTo: clusterGridContainer.bottomAnchor),
+
+            clusterUndoRedo.leadingAnchor.constraint(equalTo: clusterGridContainer.trailingAnchor, constant: 2),
+            clusterUndoRedo.trailingAnchor.constraint(equalTo: clusterContainer.trailingAnchor),
+            clusterUndoRedo.topAnchor.constraint(equalTo: clusterContainer.topAnchor),
+            clusterUndoRedo.bottomAnchor.constraint(equalTo: clusterContainer.bottomAnchor),
         ])
         updateStaticClusterVisibility()
     }
@@ -238,11 +251,13 @@ final class KeyboardAccessoryView: UIView {
         clusterShift.onTap  = { [weak self] in self?.onShiftToggle?() }
         clusterUp.tickHandler     = { [weak self] in self?.onArrow?(.up) }
         clusterDelete.tickHandler = { [weak self] in self?.onDelete?() }
-        clusterUndo.onTap = { [weak self] in self?.onUndo?() }
+        clusterUndoRedo.onTap = { [weak self, weak clusterUndoRedo] in
+            guard let clusterUndoRedo else { return }
+            self?.onUndoRedoMenu?(clusterUndoRedo)
+        }
         clusterLeft.tickHandler   = { [weak self] in self?.onArrow?(.left) }
         clusterDown.tickHandler   = { [weak self] in self?.onArrow?(.down) }
         clusterRight.tickHandler  = { [weak self] in self?.onArrow?(.right) }
-        clusterRedo.onTap = { [weak self] in self?.onRedo?() }
     }
 
     private var staticClusterButtonIds: Set<AccessoryToolbarButton> {
@@ -262,11 +277,10 @@ final class KeyboardAccessoryView: UIView {
             (.shift, clusterShift),
             (.moveUp, clusterUp),
             (.deleteBackward, clusterDelete),
-            (.undo, clusterUndo),
+            (.undoRedo, clusterUndoRedo),
             (.moveLeft, clusterLeft),
             (.moveDown, clusterDown),
             (.moveRight, clusterRight),
-            (.redo, clusterRedo),
         ]
         var anyVisible = false
         for (button, view) in clusterPairs {
@@ -274,10 +288,19 @@ final class KeyboardAccessoryView: UIView {
             view.isHidden = !visible
             anyVisible = anyVisible || visible
         }
+        let undoRedoVisible = isPinnedToStaticCluster(.undoRedo)
         clusterContainer.isHidden = !anyVisible
         clusterDivider.isHidden = !anyVisible
-        clusterWidthConstraint?.constant = anyVisible ? 176 : 0
+        clusterWidthConstraint?.constant = anyVisible ? (undoRedoVisible ? 178 : 134) : 0
         clusterDividerWidthConstraint?.constant = anyVisible ? (1 / UIScreen.main.scale) : 0
+        updateUndoRedoEnabled()
+    }
+
+    private func updateUndoRedoEnabled() {
+        let disabled = !canUndo && !canRedo
+        undoRedoButton?.isDisabled = disabled
+        clusterUndoRedo.isDisabled = disabled
+        applyPaletteToButtons()
     }
 
     // MARK: - Intrinsic size
@@ -303,7 +326,7 @@ final class KeyboardAccessoryView: UIView {
         bottomStack.arrangedSubviews.forEach { bottomStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         allButtons.removeAll()
         allSeparators.removeAll()
-        hideButton = nil; readButton = nil; undoButton = nil; redoButton = nil; cutButton = nil
+        hideButton = nil; readButton = nil; undoRedoButton = nil; cutButton = nil
         findButton = nil; shiftButton = nil; compareButton = nil
 
         // Build the full ordered list of items.
@@ -423,12 +446,17 @@ final class KeyboardAccessoryView: UIView {
         read.isActive = readMode
         readButton = read
 
-        let undo = KbButton(symbol: "arrow.uturn.backward", label: "Undo") { [weak self] in self?.onUndo?() }
-        undo.isDisabled = !canUndo
-        undoButton = undo
-        let redo = KbButton(symbol: "arrow.uturn.forward", label: "Redo") { [weak self] in self?.onRedo?() }
-        redo.isDisabled = !canRedo
-        redoButton = redo
+        let undoRedo = KbButton(
+            symbol: "arrow.uturn.backward",
+            label: "Undo/Redo",
+            customImage: Self.makeUndoRedoImage()
+        ) { }
+        undoRedo.onTap = { [weak self, weak undoRedo] in
+            guard let undoRedo else { return }
+            self?.onUndoRedoMenu?(undoRedo)
+        }
+        undoRedo.isDisabled = !canUndo && !canRedo
+        undoRedoButton = undoRedo
 
         let cut = KbButton(symbol: "scissors", label: "Cut") { [weak self] in self?.onCut?() }
         cut.isDisabled = !hasSelection
@@ -486,7 +514,7 @@ final class KeyboardAccessoryView: UIView {
         ])
         appendGroup([buttonItem(.cut, cut), buttonItem(.copy, copy), buttonItem(.paste, paste)])
         appendGroup([buttonItem(.selectWord, word), buttonItem(.selectLine, line), buttonItem(.selectAll, all)])
-        appendGroup([buttonItem(.undo, undo), buttonItem(.redo, redo)])
+        appendGroup([buttonItem(.undoRedo, undoRedo)])
         appendGroup([buttonItem(.readMode, read), buttonItem(.find, find)])
         appendGroup([
             buttonItem(.insertDate, date),
@@ -495,6 +523,26 @@ final class KeyboardAccessoryView: UIView {
             buttonItem(.more, more),
         ])
         return result
+    }
+
+    private static func makeUndoRedoImage() -> UIImage? {
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        guard
+            let undo = UIImage(systemName: "arrow.uturn.backward", withConfiguration: config),
+            let redo = UIImage(systemName: "arrow.uturn.forward", withConfiguration: config)
+        else {
+            return UIImage(systemName: "arrow.uturn.backward", withConfiguration: config)
+        }
+
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 26, height: 20))
+        let image = renderer.image { _ in
+            UIColor.black.setFill()
+            undo.withTintColor(.black, renderingMode: .alwaysOriginal)
+                .draw(in: CGRect(x: 0, y: 1, width: 15, height: 15))
+            redo.withTintColor(.black, renderingMode: .alwaysOriginal)
+                .draw(in: CGRect(x: 11, y: 4, width: 15, height: 15))
+        }
+        return image.withRenderingMode(.alwaysTemplate)
     }
 
     // MARK: - Palette
@@ -512,7 +560,7 @@ final class KeyboardAccessoryView: UIView {
         for btn in allButtons {
             btn.configureDisplay(size: buttonSize, contentMode: accessoryContentMode)
         }
-        for btn in [clusterShift, clusterUp, clusterDelete, clusterUndo, clusterLeft, clusterDown, clusterRight, clusterRedo] {
+        for btn in [clusterShift, clusterUp, clusterDelete, clusterUndoRedo, clusterLeft, clusterDown, clusterRight] {
             btn.configureDisplay(size: buttonSize, contentMode: accessoryContentMode)
         }
         invalidateIntrinsicContentSize()
@@ -526,7 +574,7 @@ final class KeyboardAccessoryView: UIView {
             sep.backgroundColor = palette.border
         }
         // Cluster buttons live outside `allButtons` (they're never rebuilt).
-        for btn in [clusterShift, clusterUp, clusterDelete, clusterUndo, clusterLeft, clusterDown, clusterRight, clusterRedo] {
+        for btn in [clusterShift, clusterUp, clusterDelete, clusterUndoRedo, clusterLeft, clusterDown, clusterRight] {
             btn.applyPalette(palette)
         }
     }
@@ -552,12 +600,14 @@ private class KbButton: UIControl {
     private var currentSize: AccessoryToolbarButtonSize = .medium
     private var currentContentMode: AccessoryToolbarContentMode = .iconAndText
     private var displayedSymbolName: String
+    private var customImage: UIImage?
 
-    init(symbol: String, label: String? = nil, onTap: @escaping () -> Void) {
+    init(symbol: String, label: String? = nil, customImage: UIImage? = nil, onTap: @escaping () -> Void) {
         self.symbolName = symbol
         self.label = label
         self.onTap = onTap
         self.displayedSymbolName = symbol
+        self.customImage = customImage
         super.init(frame: .zero)
         setup()
     }
@@ -612,6 +662,7 @@ private class KbButton: UIControl {
 
     func setSymbol(_ name: String) {
         displayedSymbolName = name
+        customImage = nil
         imageView.image = UIImage(systemName: name,
                                   withConfiguration: UIImage.SymbolConfiguration(pointSize: symbolPointSize(for: currentSize), weight: .regular))
     }
@@ -628,10 +679,14 @@ private class KbButton: UIControl {
         currentContentMode = contentMode
         minWidthConstraint?.constant = minWidth(for: size)
         minHeightConstraint?.constant = minHeight(for: size)
-        imageView.image = UIImage(
-            systemName: displayedSymbolName,
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: symbolPointSize(for: size), weight: .regular)
-        )
+        if let customImage {
+            imageView.image = customImage
+        } else {
+            imageView.image = UIImage(
+                systemName: displayedSymbolName,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: symbolPointSize(for: size), weight: .regular)
+            )
+        }
         titleLabel.font = .systemFont(ofSize: fontSize(for: size), weight: .medium)
 
         let hasText = !(label ?? "").isEmpty

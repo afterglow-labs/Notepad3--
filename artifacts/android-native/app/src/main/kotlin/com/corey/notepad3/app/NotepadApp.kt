@@ -53,6 +53,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -3630,11 +3631,20 @@ private fun MobileKeyboardAccessory(
             enabled = !readOnly,
             onClick = onDeleteBackward,
         ),
-        AccessoryToolbarAction(AccessoryToolbarButton.UNDO, Icons.AutoMirrored.Filled.Undo, "Undo", enabled = canUndo, onClick = onUndo),
+        AccessoryToolbarAction(
+            AccessoryToolbarButton.UNDO_REDO,
+            Icons.Filled.Sync,
+            "Undo/Redo",
+            enabled = canUndo || canRedo,
+            menuItems = listOf(
+                AccessoryToolbarMenuItem("Undo", Icons.AutoMirrored.Filled.Undo, enabled = canUndo, onClick = onUndo),
+                AccessoryToolbarMenuItem("Redo", Icons.AutoMirrored.Filled.Redo, enabled = canRedo, onClick = onRedo),
+            ),
+            onClick = {},
+        ),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_LEFT, Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", onClick = onMoveLeft),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_DOWN, Icons.Filled.KeyboardArrowDown, "Down", onClick = onMoveDown),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_RIGHT, Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", onClick = onMoveRight),
-        AccessoryToolbarAction(AccessoryToolbarButton.REDO, Icons.AutoMirrored.Filled.Redo, "Redo", enabled = canRedo, onClick = onRedo),
         AccessoryToolbarAction(
             AccessoryToolbarButton.HIDE_KEYBOARD,
             Icons.Filled.Keyboard,
@@ -3726,6 +3736,14 @@ private data class AccessoryToolbarAction(
     val label: String = id.displayTitle,
     val enabled: Boolean = true,
     val active: Boolean = false,
+    val menuItems: List<AccessoryToolbarMenuItem> = emptyList(),
+    val onClick: () -> Unit,
+)
+
+private data class AccessoryToolbarMenuItem(
+    val label: String,
+    val icon: ImageVector,
+    val enabled: Boolean,
     val onClick: () -> Unit,
 )
 
@@ -3790,6 +3808,7 @@ private fun AccessoryToolbarActionButton(
         action.active -> palette.primary.toColor()
         else -> palette.foreground.toColor()
     }
+    var menuExpanded by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val latestOnClick = rememberUpdatedState(action.onClick)
@@ -3816,7 +3835,13 @@ private fun AccessoryToolbarActionButton(
             onClick = {},
         )
     } else {
-        Modifier.clickable(enabled = action.enabled, onClick = action.onClick)
+        Modifier.clickable(enabled = action.enabled) {
+            if (action.menuItems.isNotEmpty()) {
+                menuExpanded = true
+            } else {
+                action.onClick()
+            }
+        }
     }
     val showIcon = action.icon != null && contentMode != AccessoryToolbarContentMode.TEXT_ONLY
     val showText = contentMode != AccessoryToolbarContentMode.ICON_ONLY || action.icon == null
@@ -3867,6 +3892,35 @@ private fun AccessoryToolbarActionButton(
                 softWrap = false,
                 modifier = Modifier.padding(horizontal = 5.dp),
             )
+        }
+        if (action.menuItems.isNotEmpty()) {
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+            ) {
+                action.menuItems.forEach { item ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = item.label,
+                                color = if (item.enabled) palette.foreground.toColor() else palette.mutedForeground.toColor(),
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                item.icon,
+                                contentDescription = null,
+                                tint = if (item.enabled) palette.foreground.toColor() else palette.mutedForeground.toColor(),
+                            )
+                        },
+                        enabled = item.enabled,
+                        onClick = {
+                            menuExpanded = false
+                            item.onClick()
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -4119,8 +4173,7 @@ private val AccessoryToolbarButton.preferenceIcon: ImageVector
         AccessoryToolbarButton.SELECT_WORD -> Icons.AutoMirrored.Filled.ShortText
         AccessoryToolbarButton.SELECT_LINE -> Icons.AutoMirrored.Filled.Subject
         AccessoryToolbarButton.SELECT_ALL -> Icons.Filled.SelectAll
-        AccessoryToolbarButton.UNDO -> Icons.AutoMirrored.Filled.Undo
-        AccessoryToolbarButton.REDO -> Icons.AutoMirrored.Filled.Redo
+        AccessoryToolbarButton.UNDO_REDO -> Icons.Filled.Sync
         AccessoryToolbarButton.READ_MODE -> Icons.Filled.Visibility
         AccessoryToolbarButton.FIND -> Icons.Filled.Search
         AccessoryToolbarButton.INSERT_DATE -> Icons.Filled.AccessTime

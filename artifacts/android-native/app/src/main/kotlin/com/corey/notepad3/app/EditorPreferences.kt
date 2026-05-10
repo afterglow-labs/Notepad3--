@@ -14,8 +14,7 @@ enum class AccessoryToolbarButton(val storageName: String, val displayTitle: Str
     SELECT_WORD("select_word", "Word"),
     SELECT_LINE("select_line", "Line"),
     SELECT_ALL("select_all", "All"),
-    UNDO("undo", "Undo"),
-    REDO("redo", "Redo"),
+    UNDO_REDO("undo_redo", "Undo/Redo"),
     READ_MODE("read_mode", "Read"),
     FIND("find", "Find"),
     INSERT_DATE("insert_date", "Date"),
@@ -32,7 +31,11 @@ enum class AccessoryToolbarButton(val storageName: String, val displayTitle: Str
 
     companion object {
         fun fromStorageName(value: String): AccessoryToolbarButton? =
-            entries.firstOrNull { it.storageName == value }
+            if (value == "undo" || value == "redo") {
+                UNDO_REDO
+            } else {
+                entries.firstOrNull { it.storageName == value }
+            }
     }
 }
 
@@ -112,11 +115,10 @@ data class EditorDisplayOptions(
             AccessoryToolbarButton.SHIFT,
             AccessoryToolbarButton.MOVE_UP,
             AccessoryToolbarButton.DELETE_BACKWARD,
-            AccessoryToolbarButton.UNDO,
+            AccessoryToolbarButton.UNDO_REDO,
             AccessoryToolbarButton.MOVE_LEFT,
             AccessoryToolbarButton.MOVE_DOWN,
             AccessoryToolbarButton.MOVE_RIGHT,
-            AccessoryToolbarButton.REDO,
         )
         val LEGACY_DEFAULT_STATIC_ACCESSORY_BUTTONS: Set<AccessoryToolbarButton> = setOf(
             AccessoryToolbarButton.SHIFT,

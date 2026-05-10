@@ -44,8 +44,7 @@ enum AccessoryToolbarButton: String, Codable, CaseIterable {
     case selectWord = "select_word"
     case selectLine = "select_line"
     case selectAll = "select_all"
-    case undo
-    case redo
+    case undoRedo = "undo_redo"
     case readMode = "read_mode"
     case find
     case insertDate = "insert_date"
@@ -68,8 +67,7 @@ enum AccessoryToolbarButton: String, Codable, CaseIterable {
         case .selectWord: return "Word"
         case .selectLine: return "Line"
         case .selectAll: return "All"
-        case .undo: return "Undo"
-        case .redo: return "Redo"
+        case .undoRedo: return "Undo/Redo"
         case .readMode: return "Read"
         case .find: return "Find"
         case .insertDate: return "Date"
@@ -89,11 +87,10 @@ enum AccessoryToolbarButton: String, Codable, CaseIterable {
         .shift,
         .moveUp,
         .deleteBackward,
-        .undo,
+        .undoRedo,
         .moveLeft,
         .moveDown,
         .moveRight,
-        .redo,
     ]
 
     static let defaultStaticButtons: Set<AccessoryToolbarButton> = Set(staticCandidates)
@@ -303,7 +300,13 @@ final class Preferences {
     private func decodeButtonSet(key: String, fallback: Set<AccessoryToolbarButton>) -> Set<AccessoryToolbarButton> {
         guard let raw = defaults.string(forKey: key) else { return fallback }
         if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
-        return Set(raw.split(separator: ",").compactMap { AccessoryToolbarButton(rawValue: String($0).trimmingCharacters(in: .whitespacesAndNewlines)) })
+        return Set(raw.split(separator: ",").compactMap { rawButton in
+            let value = String(rawButton.trimmingCharacters(in: .whitespacesAndNewlines))
+            if value == "undo" || value == "redo" {
+                return .undoRedo
+            }
+            return AccessoryToolbarButton(rawValue: value)
+        })
     }
 
     private func encodeButtonSet(_ buttons: Set<AccessoryToolbarButton>) -> String {
