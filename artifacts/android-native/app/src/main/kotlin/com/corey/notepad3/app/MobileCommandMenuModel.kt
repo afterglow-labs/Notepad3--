@@ -27,7 +27,7 @@ internal enum class PreferencesDestination(
 ) {
     GENERAL("Preferences"),
     APPEARANCE("Appearance"),
-    TOOLBAR("Toolbar"),
+    TOOLBAR("Bottom Toolbar"),
     EDITOR("Editor"),
 }
 
@@ -75,7 +75,7 @@ internal fun keyboardAccessoryToggleState(
     readOnly: Boolean,
 ): KeyboardAccessoryToggleState =
     KeyboardAccessoryToggleState(
-        label = "Hide",
+        label = if (keyboardSuppressed) "Show" else "Hide",
         active = keyboardSuppressed,
         enabled = !readOnly,
     )
@@ -118,7 +118,7 @@ internal fun classicSettingsSubmenus(): List<ClassicSubmenuSpec> =
         ClassicSubmenuSpec(
             title = "Appearance",
             rows = listOf(
-                "Toolbar preferences...",
+                "Bottom toolbar preferences...",
                 "Themes",
             ).map(::MobileMenuRow),
         ),
@@ -127,7 +127,7 @@ internal fun classicSettingsSubmenus(): List<ClassicSubmenuSpec> =
 internal fun preferencesHomeRows(): List<MobileMenuRow> =
     listOf(
         MobileMenuRow("Appearance"),
-        MobileMenuRow("Toolbar"),
+        MobileMenuRow("Bottom Toolbar"),
         MobileMenuRow("Editor"),
     )
 
@@ -222,7 +222,7 @@ private fun menuBarSections(): List<MobileMenuSection> =
                 "Switch to classic layout",
                 "Word wrap",
                 "Line numbers",
-                "Keyboard toolbar",
+                "Bottom toolbar",
             ).map(::MobileMenuRow),
         ),
         MobileMenuSection(
@@ -234,7 +234,7 @@ private fun menuBarSections(): List<MobileMenuSection> =
             rows = listOf(
                 "Preferences",
                 "Appearance preferences",
-                "Toolbar preferences",
+                "Bottom toolbar preferences",
                 "Cycle theme",
             ).map(::MobileMenuRow),
         ),

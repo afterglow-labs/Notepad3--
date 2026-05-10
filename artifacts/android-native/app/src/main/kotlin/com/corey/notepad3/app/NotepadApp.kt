@@ -1666,7 +1666,7 @@ private fun ClassicMenuBar(
             ClassicDropdownMenuHeader("Editor chrome", palette)
             ClassicDropdownMenuItem("Word wrap", Icons.AutoMirrored.Filled.WrapText, palette, checked = displayOptions.wordWrap) { runMenuAction(onToggleWordWrap) }
             ClassicDropdownMenuItem("Line numbers", Icons.Filled.FormatListNumbered, palette, checked = displayOptions.lineNumbers) { runMenuAction(onToggleLineNumbers) }
-            ClassicDropdownMenuItem("Accessory toolbar", Icons.Filled.Keyboard, palette, checked = displayOptions.accessoryBar) { runMenuAction(onToggleAccessoryBar) }
+            ClassicDropdownMenuItem("Bottom toolbar", Icons.Filled.Keyboard, palette, checked = displayOptions.accessoryBar) { runMenuAction(onToggleAccessoryBar) }
         }
         ClassicMenuButton(
             text = "Syntax",
@@ -1697,7 +1697,7 @@ private fun ClassicMenuBar(
             ClassicDropdownSeparator(palette)
             ClassicDropdownSubmenuItem("Appearance", Icons.Filled.Palette, palette) {
                 ClassicDropdownMenuItem("Appearance preferences...", Icons.Filled.Settings, palette) { runMenuAction(onAppearancePreferences) }
-                ClassicDropdownMenuItem("Toolbar preferences...", Icons.Filled.Keyboard, palette) { runMenuAction(onToolbarPreferences) }
+                ClassicDropdownMenuItem("Bottom toolbar preferences...", Icons.Filled.Keyboard, palette) { runMenuAction(onToolbarPreferences) }
                 ClassicDropdownSubmenuItem("Themes", Icons.Filled.Palette, palette) {
                     ClassicDropdownMenuItem("Next theme", Icons.Filled.Palette, palette) { runMenuAction(onCycleTheme) }
                     ClassicDropdownSeparator(palette)
@@ -2770,7 +2770,7 @@ private fun PreferencesPage(
                         preferencesHomeRows().forEach { row ->
                             val target = when (row.title) {
                                 "Appearance" -> PreferencesDestination.APPEARANCE
-                                "Toolbar" -> PreferencesDestination.TOOLBAR
+                                "Bottom Toolbar" -> PreferencesDestination.TOOLBAR
                                 else -> PreferencesDestination.EDITOR
                             }
                             val icon = when (target) {
@@ -2809,19 +2809,19 @@ private fun PreferencesPage(
                             palette = palette,
                             checked = layoutMode == EditorLayoutMode.CLASSIC,
                         ) { onSetLayoutMode(EditorLayoutMode.CLASSIC) }
-                        MenuActionRow(Icons.Filled.Keyboard, "Toolbar preferences", palette, subtitle = "Rows, size, pinned buttons") {
+                        MenuActionRow(Icons.Filled.Keyboard, "Bottom toolbar preferences", palette, subtitle = "Rows, size, pinned buttons") {
                             onNavigate(PreferencesDestination.TOOLBAR)
                         }
                     }
 
                     PreferencesDestination.TOOLBAR -> {
-                        MenuSectionHeader("Toolbar", palette)
-                        MenuActionRow(Icons.Filled.Keyboard, "Accessory toolbar", palette, checked = displayOptions.accessoryBar) {
+                        MenuSectionHeader("Bottom Toolbar", palette)
+                        MenuActionRow(Icons.Filled.Keyboard, "Bottom toolbar", palette, checked = displayOptions.accessoryBar) {
                             onToggleAccessoryBar()
                         }
                         PreferenceStepperRow(
                             icon = Icons.Filled.ViewColumn,
-                            title = "Toolbar rows",
+                            title = "Bottom toolbar rows",
                             value = displayOptions.accessoryToolbarRows.toString(),
                             palette = palette,
                             onDown = onToolbarRowsDown,
@@ -3078,7 +3078,7 @@ private fun MorePanel(
                             "Switch to classic layout" -> MenuActionRow(Icons.Filled.DesktopWindows, layoutMode.toggleLabel, palette) { run(onToggleLayoutMode) }
                             "Word wrap" -> MenuActionRow(Icons.AutoMirrored.Filled.WrapText, title, palette, checked = displayOptions.wordWrap) { run(onToggleWordWrap) }
                             "Line numbers" -> MenuActionRow(Icons.Filled.FormatListNumbered, title, palette, checked = displayOptions.lineNumbers) { run(onToggleLineNumbers) }
-                            "Keyboard toolbar" -> MenuActionRow(Icons.Filled.Keyboard, title, palette, checked = displayOptions.accessoryBar) { run(onToggleAccessoryBar) }
+                            "Bottom toolbar" -> MenuActionRow(Icons.Filled.Keyboard, title, palette, checked = displayOptions.accessoryBar) { run(onToggleAccessoryBar) }
                         }
                         "Language" -> {
                             val language = DocumentLanguage.selectableLanguages.firstOrNull { it.displayName == title }
@@ -3091,7 +3091,7 @@ private fun MorePanel(
                         "Settings" -> when (title) {
                             "Preferences" -> MenuActionRow(Icons.Filled.Settings, title, palette, subtitle = "Full-screen settings page") { run(onPreferences) }
                             "Appearance preferences" -> MenuActionRow(Icons.Filled.Palette, title, palette, subtitle = "Themes and layout") { run(onAppearancePreferences) }
-                            "Toolbar preferences" -> MenuActionRow(Icons.Filled.Keyboard, title, palette, subtitle = "Rows, size, pinned buttons") { run(onToolbarPreferences) }
+                            "Bottom toolbar preferences" -> MenuActionRow(Icons.Filled.Keyboard, title, palette, subtitle = "Rows, size, pinned buttons") { run(onToolbarPreferences) }
                             "Cycle theme" -> MenuActionRow(Icons.Filled.Palette, title, palette) { run(onCycleTheme) }
                         }
                         "Tools" -> when (title) {
@@ -3630,9 +3630,11 @@ private fun MobileKeyboardAccessory(
             enabled = !readOnly,
             onClick = onDeleteBackward,
         ),
+        AccessoryToolbarAction(AccessoryToolbarButton.UNDO, Icons.AutoMirrored.Filled.Undo, "Undo", enabled = canUndo, onClick = onUndo),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_LEFT, Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", onClick = onMoveLeft),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_DOWN, Icons.Filled.KeyboardArrowDown, "Down", onClick = onMoveDown),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_RIGHT, Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", onClick = onMoveRight),
+        AccessoryToolbarAction(AccessoryToolbarButton.REDO, Icons.AutoMirrored.Filled.Redo, "Redo", enabled = canRedo, onClick = onRedo),
         AccessoryToolbarAction(
             AccessoryToolbarButton.HIDE_KEYBOARD,
             Icons.Filled.Keyboard,
@@ -3647,8 +3649,6 @@ private fun MobileKeyboardAccessory(
         AccessoryToolbarAction(AccessoryToolbarButton.SELECT_WORD, Icons.AutoMirrored.Filled.ShortText, "Word", onClick = onSelectWord),
         AccessoryToolbarAction(AccessoryToolbarButton.SELECT_LINE, Icons.AutoMirrored.Filled.Subject, "Line", onClick = onSelectLine),
         AccessoryToolbarAction(AccessoryToolbarButton.SELECT_ALL, Icons.Filled.SelectAll, "All", onClick = onSelectAll),
-        AccessoryToolbarAction(AccessoryToolbarButton.UNDO, Icons.AutoMirrored.Filled.Undo, "Undo", enabled = canUndo, onClick = onUndo),
-        AccessoryToolbarAction(AccessoryToolbarButton.REDO, Icons.AutoMirrored.Filled.Redo, "Redo", enabled = canRedo, onClick = onRedo),
         AccessoryToolbarAction(
             AccessoryToolbarButton.READ_MODE,
             if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,

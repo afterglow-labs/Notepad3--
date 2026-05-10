@@ -1,10 +1,9 @@
 import UIKit
 
-/// Input accessory bar that sits above the software keyboard. Mirrors the
-/// RN toolbar: Hide, Read, Undo, Redo, Cut, Copy, Paste, Word, Line, All,
-/// ← ↑ ↓ →, Find, Date, Open, Compare, More. Buttons live in a
-/// horizontal scroll view; when `rows == .double` the items are split
-/// across two stacked scroll views for a chunkier, less scrolly layout.
+/// Classic-mode bottom toolbar. It follows the keyboard when shown, remains
+/// visible when the keyboard is hidden, and mirrors the native Android toolbar:
+/// fixed editing keys on the left, scrollable actions on the right.
+/// When `rows == .double`, scrolling items are split across two stacked rows.
 ///
 /// The view owns no state beyond button flags (active/disabled) and the
 /// palette; everything else flows through the action callbacks. Arrow
@@ -32,14 +31,22 @@ final class KeyboardAccessoryView: UIView {
     var hiddenButtons: Set<AccessoryToolbarButton> = [] {
         didSet { rebuildLayout() }
     }
+    var keyboardHidden: Bool = false {
+        didSet {
+            hideButton?.isActive = keyboardHidden
+            hideButton?.setSymbol(keyboardHidden ? "keyboard" : "keyboard.chevron.compact.down")
+            hideButton?.setTitle(keyboardHidden ? "Show" : "Hide")
+            applyPaletteToButtons()
+        }
+    }
     var readMode: Bool = false {
         didSet { readButton?.setSymbol(readMode ? "eye" : "eye.slash"); readButton?.isActive = readMode; applyPaletteToButtons() }
     }
     var canUndo: Bool = true {
-        didSet { undoButton?.isDisabled = !canUndo; applyPaletteToButtons() }
+        didSet { undoButton?.isDisabled = !canUndo; clusterUndo.isDisabled = !canUndo; applyPaletteToButtons() }
     }
     var canRedo: Bool = true {
-        didSet { redoButton?.isDisabled = !canRedo; applyPaletteToButtons() }
+        didSet { redoButton?.isDisabled = !canRedo; clusterRedo.isDisabled = !canRedo; applyPaletteToButtons() }
     }
     var hasSelection: Bool = false {
         didSet { cutButton?.isDisabled = !hasSelection; applyPaletteToButtons() }
@@ -92,23 +99,26 @@ final class KeyboardAccessoryView: UIView {
 
     // Static "virtual D-pad" cluster pinned to the leading edge. Always
     // visible regardless of accessoryRows, scrolling, or whatever the rest
-    // of the bar is up to. 3 columns × 2 rows:
-    //   top: [Shift] [↑]  [Delete]
-    //   bot: [ ←  ] [↓]  [  →   ]
+    // of the bar is up to. 4 columns × 2 rows:
+    //   top: [Shift] [↑]  [Delete] [Undo]
+    //   bot: [ ←  ] [↓]  [  →   ] [Redo]
     private let clusterContainer = UIView()
     private let clusterDivider = UIView()
     private let clusterShift: KbButton
     private let clusterUp: KbHoldButton
     private let clusterDelete: KbHoldButton
+    private let clusterUndo: KbButton
     private let clusterLeft: KbHoldButton
     private let clusterDown: KbHoldButton
     private let clusterRight: KbHoldButton
+    private let clusterRedo: KbButton
     private var clusterWidthConstraint: NSLayoutConstraint?
     private var clusterDividerWidthConstraint: NSLayoutConstraint?
 
     private var palette: Palette = .light
 
     // Button references we toggle in the scrolling part.
+    private weak var hideButton: KbButton?
     private weak var readButton: KbButton?
     private weak var undoButton: KbButton?
     private weak var redoButton: KbButton?
@@ -128,9 +138,11 @@ final class KeyboardAccessoryView: UIView {
         clusterShift  = KbButton(symbol: "shift", label: "Shift") { }
         clusterUp     = KbHoldButton(symbol: "arrow.up", label: "Up") { }
         clusterDelete = KbHoldButton(symbol: "delete.left", label: "Delete") { }
+        clusterUndo   = KbButton(symbol: "arrow.uturn.backward", label: "Undo") { }
         clusterLeft   = KbHoldButton(symbol: "arrow.left", label: "Left") { }
         clusterDown   = KbHoldButton(symbol: "arrow.down", label: "Down") { }
         clusterRight  = KbHoldButton(symbol: "arrow.right", label: "Right") { }
+        clusterRedo   = KbButton(symbol: "arrow.uturn.forward", label: "Redo") { }
         super.init(frame: frame)
         autoresizingMask = [.flexibleWidth]
         setupBase()
@@ -167,8 +179,8 @@ final class KeyboardAccessoryView: UIView {
         clusterContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(clusterContainer)
 
-        let topCluster = UIStackView(arrangedSubviews: [clusterShift, clusterUp, clusterDelete])
-        let botCluster = UIStackView(arrangedSubviews: [clusterLeft, clusterDown, clusterRight])
+        let topCluster = UIStackView(arrangedSubviews: [clusterShift, clusterUp, clusterDelete, clusterUndo])
+        let botCluster = UIStackView(arrangedSubviews: [clusterLeft, clusterDown, clusterRight, clusterRedo])
         for st in [topCluster, botCluster] {
             st.translatesAutoresizingMaskIntoConstraints = false
             st.axis = .horizontal
@@ -182,7 +194,7 @@ final class KeyboardAccessoryView: UIView {
         clusterDivider.translatesAutoresizingMaskIntoConstraints = false
         addSubview(clusterDivider)
 
-        let clusterWidth = clusterContainer.widthAnchor.constraint(equalToConstant: 132)
+        let clusterWidth = clusterContainer.widthAnchor.constraint(equalToConstant: 176)
         let dividerWidth = clusterDivider.widthAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
         clusterWidthConstraint = clusterWidth
         clusterDividerWidthConstraint = dividerWidth
@@ -193,7 +205,7 @@ final class KeyboardAccessoryView: UIView {
             topBorder.trailingAnchor.constraint(equalTo: trailingAnchor),
             topBorder.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
 
-            // Cluster — fixed 132pt wide, fills the bar's height.
+            // Cluster — fixed four-column block, fills the bar's height.
             clusterContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             clusterContainer.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             clusterContainer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
@@ -222,9 +234,11 @@ final class KeyboardAccessoryView: UIView {
         clusterShift.onTap  = { [weak self] in self?.onShiftToggle?() }
         clusterUp.tickHandler     = { [weak self] in self?.onArrow?(.up) }
         clusterDelete.tickHandler = { [weak self] in self?.onDelete?() }
+        clusterUndo.onTap = { [weak self] in self?.onUndo?() }
         clusterLeft.tickHandler   = { [weak self] in self?.onArrow?(.left) }
         clusterDown.tickHandler   = { [weak self] in self?.onArrow?(.down) }
         clusterRight.tickHandler  = { [weak self] in self?.onArrow?(.right) }
+        clusterRedo.onTap = { [weak self] in self?.onRedo?() }
     }
 
     private var staticClusterButtonIds: Set<AccessoryToolbarButton> {
@@ -244,9 +258,11 @@ final class KeyboardAccessoryView: UIView {
             (.shift, clusterShift),
             (.moveUp, clusterUp),
             (.deleteBackward, clusterDelete),
+            (.undo, clusterUndo),
             (.moveLeft, clusterLeft),
             (.moveDown, clusterDown),
             (.moveRight, clusterRight),
+            (.redo, clusterRedo),
         ]
         var anyVisible = false
         for (button, view) in clusterPairs {
@@ -256,7 +272,7 @@ final class KeyboardAccessoryView: UIView {
         }
         clusterContainer.isHidden = !anyVisible
         clusterDivider.isHidden = !anyVisible
-        clusterWidthConstraint?.constant = anyVisible ? 132 : 0
+        clusterWidthConstraint?.constant = anyVisible ? 176 : 0
         clusterDividerWidthConstraint?.constant = anyVisible ? (1 / UIScreen.main.scale) : 0
     }
 
@@ -283,7 +299,7 @@ final class KeyboardAccessoryView: UIView {
         bottomStack.arrangedSubviews.forEach { bottomStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         allButtons.removeAll()
         allSeparators.removeAll()
-        readButton = nil; undoButton = nil; redoButton = nil; cutButton = nil
+        hideButton = nil; readButton = nil; undoButton = nil; redoButton = nil; cutButton = nil
         findButton = nil; shiftButton = nil; compareButton = nil
 
         // Build the full ordered list of items.
@@ -390,13 +406,15 @@ final class KeyboardAccessoryView: UIView {
     }
 
     private func makeItems() -> [Item] {
-        // Hide is leftmost and rides the primary tint full-time so it reads
-        // as an always-available escape hatch — tapping it dismisses the
-        // keyboard while leaving the document editable, distinct from Read
-        // mode which locks the buffer. `isActive` is how KbButton renders
-        // "emphasised, palette.primary-tinted."
-        let hide = KbButton(symbol: "keyboard.chevron.compact.down", label: "Hide") { [weak self] in self?.onHide?() }
-        hide.isActive = true
+        // Hide/Show is leftmost so keyboard visibility is always discoverable.
+        // It suppresses the keyboard while leaving the document editable,
+        // distinct from Read mode which locks the buffer.
+        let hide = KbButton(
+            symbol: keyboardHidden ? "keyboard" : "keyboard.chevron.compact.down",
+            label: keyboardHidden ? "Show" : "Hide"
+        ) { [weak self] in self?.onHide?() }
+        hide.isActive = keyboardHidden
+        hideButton = hide
         let read = KbButton(symbol: readMode ? "eye" : "eye.slash", label: "Read") { [weak self] in self?.onReadToggle?() }
         read.isActive = readMode
         readButton = read
@@ -490,7 +508,7 @@ final class KeyboardAccessoryView: UIView {
         for btn in allButtons {
             btn.configureDisplay(size: buttonSize, contentMode: accessoryContentMode)
         }
-        for btn in [clusterShift, clusterUp, clusterDelete, clusterLeft, clusterDown, clusterRight] {
+        for btn in [clusterShift, clusterUp, clusterDelete, clusterUndo, clusterLeft, clusterDown, clusterRight, clusterRedo] {
             btn.configureDisplay(size: buttonSize, contentMode: accessoryContentMode)
         }
         invalidateIntrinsicContentSize()
@@ -504,7 +522,7 @@ final class KeyboardAccessoryView: UIView {
             sep.backgroundColor = palette.border
         }
         // Cluster buttons live outside `allButtons` (they're never rebuilt).
-        for btn in [clusterShift, clusterUp, clusterDelete, clusterLeft, clusterDown, clusterRight] {
+        for btn in [clusterShift, clusterUp, clusterDelete, clusterUndo, clusterLeft, clusterDown, clusterRight, clusterRedo] {
             btn.applyPalette(palette)
         }
     }
@@ -514,7 +532,7 @@ final class KeyboardAccessoryView: UIView {
 
 private class KbButton: UIControl {
     let symbolName: String
-    let label: String?
+    private(set) var label: String?
     var onTap: (() -> Void)?
 
     var isActive: Bool = false
@@ -566,6 +584,7 @@ private class KbButton: UIControl {
         titleLabel.font = .systemFont(ofSize: 9, weight: .medium)
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.text = label
         contentStack.addArrangedSubview(titleLabel)
 
@@ -592,6 +611,13 @@ private class KbButton: UIControl {
         displayedSymbolName = name
         imageView.image = UIImage(systemName: name,
                                   withConfiguration: UIImage.SymbolConfiguration(pointSize: symbolPointSize(for: currentSize), weight: .regular))
+    }
+
+    func setTitle(_ text: String?) {
+        label = text
+        titleLabel.text = text
+        accessibilityLabel = text ?? displayedSymbolName
+        configureDisplay(size: currentSize, contentMode: currentContentMode)
     }
 
     func configureDisplay(size: AccessoryToolbarButtonSize, contentMode: AccessoryToolbarContentMode) {
@@ -651,7 +677,10 @@ private class KbButton: UIControl {
         }
     }
 
-    @objc private func tapped() { onTap?() }
+    @objc private func tapped() {
+        Haptics.selectionChanged()
+        onTap?()
+    }
 
     override var isHighlighted: Bool {
         didSet { refreshVisuals() }
@@ -672,9 +701,15 @@ private class KbButton: UIControl {
         imageView.tintColor = tint
         titleLabel.textColor = tint
 
+        layer.borderWidth = (isHighlighted || isActive) ? (1 / UIScreen.main.scale) : 0
+        layer.borderColor = (isHighlighted ? p.primary : p.border).cgColor
+
         if isHighlighted {
-            backgroundColor = p.secondary
-            alpha = isDisabled ? 0.35 : 0.55
+            backgroundColor = p.primary.withAlphaComponent(0.18)
+            alpha = isDisabled ? 0.35 : 1.0
+        } else if isActive {
+            backgroundColor = p.primary.withAlphaComponent(0.12)
+            alpha = isDisabled ? 0.35 : 1.0
         } else {
             backgroundColor = .clear
             alpha = isDisabled ? 0.35 : 1.0
@@ -684,8 +719,8 @@ private class KbButton: UIControl {
 
 // MARK: - KbHoldButton
 
-/// Auto-repeating accessory button. Fires once immediately on press-in,
-/// waits 380 ms, then fires every 220 ms. After 3 repeats the cadence
+/// Auto-repeating toolbar button. Fires once immediately on press-in,
+/// waits 280 ms, then fires every 220 ms. After 3 repeats the cadence
 /// tightens to 120 ms; after 6 it drops to 60 ms. Releasing the button
 /// (or touch cancelled) cancels all outstanding timers.
 private final class KbHoldButton: KbButton {
@@ -699,7 +734,7 @@ private final class KbHoldButton: KbButton {
         super.init(symbol: symbol, label: label, onTap: {})
         // Tap handler not used — we drive from touch events instead.
         self.onTap = nil
-        removeTarget(self, action: #selector(tappedOverride), for: .touchUpInside)
+        removeTarget(nil, action: nil, for: .touchUpInside)
         // Wire our own touch handlers.
         addTarget(self, action: #selector(pressDown), for: .touchDown)
         addTarget(self, action: #selector(pressUp), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
@@ -707,24 +742,27 @@ private final class KbHoldButton: KbButton {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
-    @objc private func tappedOverride() { /* unused */ }
-
     @objc private func pressDown() {
+        isHighlighted = true
+        Haptics.selectionChanged()
         tickHandler()
         repeatCount = 0
         initialDelayTimer?.invalidate()
-        initialDelayTimer = Timer.scheduledTimer(withTimeInterval: 0.380, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.280, repeats: false) { [weak self] _ in
             self?.startRepeating(every: 0.220)
         }
+        initialDelayTimer = timer
+        RunLoop.main.add(timer, for: .common)
     }
 
     @objc private func pressUp() {
+        isHighlighted = false
         stopAllTimers()
     }
 
     private func startRepeating(every interval: TimeInterval) {
         holdTimer?.invalidate()
-        holdTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.tickHandler()
             self.repeatCount += 1
@@ -734,6 +772,8 @@ private final class KbHoldButton: KbButton {
                 self.startRepeating(every: 0.120)
             }
         }
+        holdTimer = timer
+        RunLoop.main.add(timer, for: .common)
     }
 
     private func stopAllTimers() {

@@ -27,8 +27,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private let statusBar = StatusBar()
     private let lineGutter = LineGutter()
 
-    // Keyboard accessory — always attached to the text input
+    // Classic bottom toolbar. It follows the keyboard when shown and stays
+    // visible when the keyboard is hidden.
     private let keyboardAccessory = KeyboardAccessoryView()
+    private let suppressedKeyboardView = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 1))
 
     // Markdown preview — shown in-place when previewMode is on for .markdown docs
     private let markdownPreview = MarkdownPreviewView()
@@ -55,12 +57,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
     }
     private var toolbarOpen = true
+    private var keyboardSuppressed = false
+    private var bottomToolbarHeight: NSLayoutConstraint?
+    private var preferredVerticalCaretX: CGFloat?
 
-    // Selection-extension state for the keyboard accessory's Shift toggle.
+    // Selection-extension state for the bottom toolbar's Shift toggle.
     // When `shiftAnchor` is non-nil, arrow taps extend the selection from
-    // the anchor instead of moving the caret. Any user-driven selection
-    // change (tap-to-position, drag-select, programmatic select-word/line,
-    // cut/paste) clears the anchor — see textViewDidChangeSelection.
+    // the anchor instead of moving the caret. The anchor follows user-driven
+    // caret moves so the toolbar shift state does not immediately collapse
+    // when the system keyboard changes the selection.
     private var shiftAnchor: Int?
     // Set true around the moveCursor selectedRange assignment so the
     // delegate doesn't treat our own change as a user-driven cancel.
@@ -190,7 +195,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
         textView.alwaysBounceVertical = true
-        textView.keyboardDismissMode = .interactive
+        textView.keyboardDismissMode = .none
         textView.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         view.addSubview(textView)
 
@@ -370,14 +375,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     private func configureKeyboardAccessory() {
         let accessory = keyboardAccessory
-        accessory.autoresizingMask = [.flexibleWidth]
+        accessory.translatesAutoresizingMaskIntoConstraints = false
         accessory.rows = prefs.accessoryRows == .double ? .double : .single
         accessory.buttonSize = prefs.accessoryToolbarButtonSize
         accessory.accessoryContentMode = prefs.accessoryToolbarContentMode
         accessory.staticButtons = prefs.staticAccessoryButtons
         accessory.hiddenButtons = prefs.hiddenAccessoryButtons
-        accessory.frame = CGRect(x: 0, y: 0, width: 320, height: accessory.preferredHeight)
-        accessory.onHide = { [weak self] in self?.textView.resignFirstResponder() }
+        accessory.keyboardHidden = keyboardSuppressed
+        accessory.onHide = { [weak self] in self?.toggleKeyboardSuppression() }
         accessory.onReadToggle = { [weak self] in self?.readMode.toggle() }
         accessory.onUndo = { [weak self] in self?.textView.undoManager?.undo() }
         accessory.onRedo = { [weak self] in self?.textView.undoManager?.redo() }
@@ -395,7 +400,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         accessory.onOpenDocs = { [weak self] in self?.presentDocsList() }
         accessory.onCompare = { [weak self] in self?.presentCompare() }
         accessory.onMore = { [weak self] in self?.presentMobileMore() }
-        textView.inputAccessoryView = accessory
+        view.addSubview(accessory)
     }
 
     // MARK: - Constraint stacks
@@ -425,7 +430,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             separator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
         ]
 
-        // Mobile mode: [findBar] [tabStrip] [separator] [textView] [mobileBottomBar@bottom]
+        // Mobile mode: [findBar] [tabStrip] [separator] [textView] [statusBar] [mobileBottomBar@bottom]
         //              mobileFab floats bottom-right above the bottom bar.
         mobileConstraints = [
             tabStrip.topAnchor.constraint(equalTo: findBar.bottomAnchor),
@@ -436,7 +441,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             separator.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
 
             textView.topAnchor.constraint(equalTo: separator.bottomAnchor),
-            textView.bottomAnchor.constraint(equalTo: mobileBottomBar.topAnchor),
+            textView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+
+            statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: mobileBottomBar.topAnchor),
+            statusBar.heightAnchor.constraint(equalToConstant: 24),
 
             mobileBottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             mobileBottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -454,8 +464,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             mobileFab.bottomAnchor.constraint(equalTo: mobileBottomBar.topAnchor, constant: -12),
         ]
 
+        let bottomToolbarHeight = keyboardAccessory.heightAnchor.constraint(equalToConstant: keyboardAccessory.preferredHeight)
+        self.bottomToolbarHeight = bottomToolbarHeight
+
         // Classic mode: [findBar] [titleBar] [aeroMenu] [classicToolbar] [tabStrip]
-        //               [separator] [lineGutter + textView] [statusBar@bottom]
+        //               [separator] [lineGutter + textView] [statusBar] [bottom toolbar@keyboard]
         classicConstraints = [
             classicTitleBar.topAnchor.constraint(equalTo: findBar.bottomAnchor),
             classicTitleBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -488,8 +501,13 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
             statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            statusBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: keyboardAccessory.topAnchor),
             statusBar.heightAnchor.constraint(equalToConstant: 24),
+
+            keyboardAccessory.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            keyboardAccessory.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            keyboardAccessory.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            bottomToolbarHeight,
         ]
 
         // Zen mode: textView fills the safe area. All chrome is hidden and
@@ -520,9 +538,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         classicToolbar.isHidden = true
         statusBar.isHidden = true
         lineGutter.isHidden = true
+        keyboardAccessory.isHidden = true
 
         switch mode {
         case .mobile:
+            if keyboardSuppressed {
+                setKeyboardSuppressed(false, focusIfShowing: false)
+            }
+            statusBar.isHidden = false
             mobileBottomBar.isHidden = false
             mobileFab.isHidden = false
             NSLayoutConstraint.activate(mobileConstraints)
@@ -533,6 +556,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             classicToolbar.isHidden = !toolbarOpen
             statusBar.isHidden = false
             lineGutter.isHidden = false
+            keyboardAccessory.isHidden = false
             NSLayoutConstraint.activate(classicConstraints)
             // Classic mode hides the iOS nav bar — ClassicTitleBar + AeroMenuBar take its place.
             navigationController?.setNavigationBarHidden(true, animated: animated)
@@ -748,14 +772,13 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         classicToolbar.setLabelsVisible(prefs.toolbarLabels)
         classicToolbar.setRows(prefs.toolbarRows == .double ? 2 : 1)
         classicToolbar.isHidden = (prefs.layoutMode == .classic) ? !toolbarOpen : true
-        // Keyboard accessory rows and toolbar customization
+        // Bottom toolbar rows and customization
         keyboardAccessory.rows = prefs.accessoryRows == .double ? .double : .single
         keyboardAccessory.buttonSize = prefs.accessoryToolbarButtonSize
         keyboardAccessory.accessoryContentMode = prefs.accessoryToolbarContentMode
         keyboardAccessory.staticButtons = prefs.staticAccessoryButtons
         keyboardAccessory.hiddenButtons = prefs.hiddenAccessoryButtons
-        keyboardAccessory.frame.size.height = keyboardAccessory.preferredHeight
-        textView.reloadInputViews()
+        bottomToolbarHeight?.constant = keyboardAccessory.preferredHeight
         // Custom palette may have changed
         applyPalette()
     }
@@ -834,17 +857,19 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         if previewMode { markdownPreview.setMarkdown(textView.text ?? "") }
         keyboardAccessory.canUndo = textView.undoManager?.canUndo ?? false
         keyboardAccessory.canRedo = textView.undoManager?.canRedo ?? false
+        if shiftAnchor != nil {
+            shiftAnchor = textView.selectedRange.location
+            keyboardAccessory.shiftActive = true
+        }
+        preferredVerticalCaretX = nil
         refreshStatusBar()
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
-        // Any selection change not driven by our shift-arrow extension
-        // abandons the anchor — matches hardware-keyboard shift, where
-        // clicking elsewhere or running an explicit selection command ends
-        // the in-progress range.
         if shiftAnchor != nil && !programmaticSelectionChange {
-            shiftAnchor = nil
-            keyboardAccessory.shiftActive = false
+            shiftAnchor = textView.selectedRange.location
+            keyboardAccessory.shiftActive = true
+            preferredVerticalCaretX = nil
         }
         keyboardAccessory.hasSelection = textView.selectedRange.length > 0
         refreshStatusBar()
@@ -1101,6 +1126,27 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
     }
 
+    private func toggleKeyboardSuppression() {
+        setKeyboardSuppressed(!keyboardSuppressed, focusIfShowing: true)
+        Haptics.selectionChanged()
+    }
+
+    private func setKeyboardSuppressed(_ suppressed: Bool, focusIfShowing: Bool) {
+        keyboardSuppressed = suppressed
+        keyboardAccessory.keyboardHidden = suppressed
+        if suppressed {
+            textView.inputView = suppressedKeyboardView
+            textView.reloadInputViews()
+            textView.resignFirstResponder()
+        } else {
+            textView.inputView = nil
+            textView.reloadInputViews()
+            if focusIfShowing && !readMode {
+                textView.becomeFirstResponder()
+            }
+        }
+    }
+
     private func moveCursor(direction: KeyboardAccessoryView.Arrow) {
         let ns = (textView.text ?? "") as NSString
 
@@ -1116,10 +1162,16 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
         let newCaret: Int
         switch direction {
-        case .left:  newCaret = max(0, movingEnd - 1)
-        case .right: newCaret = min(ns.length, movingEnd + 1)
-        case .up:    newCaret = caretVerticallyMoved(in: ns, from: movingEnd, direction: -1)
-        case .down:  newCaret = caretVerticallyMoved(in: ns, from: movingEnd, direction: 1)
+        case .left:
+            preferredVerticalCaretX = nil
+            newCaret = max(0, movingEnd - 1)
+        case .right:
+            preferredVerticalCaretX = nil
+            newCaret = min(ns.length, movingEnd + 1)
+        case .up:
+            newCaret = visuallyMovedCaret(from: movingEnd, fallbackText: ns, direction: -1)
+        case .down:
+            newCaret = visuallyMovedCaret(from: movingEnd, fallbackText: ns, direction: 1)
         }
 
         programmaticSelectionChange = true
@@ -1131,6 +1183,35 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             textView.selectedRange = NSRange(location: newCaret, length: 0)
         }
         programmaticSelectionChange = false
+        textView.scrollRangeToVisible(textView.selectedRange)
+    }
+
+    private func visuallyMovedCaret(from offset: Int, fallbackText ns: NSString, direction: Int) -> Int {
+        let clamped = max(0, min(offset, ns.length))
+        guard let position = textPosition(at: clamped) else {
+            return caretVerticallyMoved(in: ns, from: clamped, direction: direction)
+        }
+        let rect = textView.caretRect(for: position)
+        let fallbackLineHeight = textView.font?.lineHeight ?? 18
+        let x = preferredVerticalCaretX ?? rect.midX
+        preferredVerticalCaretX = x
+        let step = max(rect.height, fallbackLineHeight)
+        let target = CGPoint(
+            x: max(textView.textContainerInset.left, min(x, textView.bounds.width - textView.textContainerInset.right)),
+            y: rect.midY + (CGFloat(direction) * step)
+        )
+        guard let targetPosition = textView.closestPosition(to: target) else {
+            return caretVerticallyMoved(in: ns, from: clamped, direction: direction)
+        }
+        let moved = textView.offset(from: textView.beginningOfDocument, to: targetPosition)
+        if moved == clamped {
+            return caretVerticallyMoved(in: ns, from: clamped, direction: direction)
+        }
+        return max(0, min(moved, ns.length))
+    }
+
+    private func textPosition(at offset: Int) -> UITextPosition? {
+        textView.position(from: textView.beginningOfDocument, offset: offset)
     }
 
     private func caretVerticallyMoved(in ns: NSString, from caret: Int, direction: Int) -> Int {
@@ -1181,6 +1262,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             tabStrip.isHidden = true
             statusBar.isHidden = true
             lineGutter.isHidden = true
+            keyboardAccessory.isHidden = true
             mobileBottomBar.isHidden = true
             mobileFab.isHidden = true
 

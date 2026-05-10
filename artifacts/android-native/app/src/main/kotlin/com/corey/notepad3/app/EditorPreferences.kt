@@ -112,6 +112,16 @@ data class EditorDisplayOptions(
             AccessoryToolbarButton.SHIFT,
             AccessoryToolbarButton.MOVE_UP,
             AccessoryToolbarButton.DELETE_BACKWARD,
+            AccessoryToolbarButton.UNDO,
+            AccessoryToolbarButton.MOVE_LEFT,
+            AccessoryToolbarButton.MOVE_DOWN,
+            AccessoryToolbarButton.MOVE_RIGHT,
+            AccessoryToolbarButton.REDO,
+        )
+        val LEGACY_DEFAULT_STATIC_ACCESSORY_BUTTONS: Set<AccessoryToolbarButton> = setOf(
+            AccessoryToolbarButton.SHIFT,
+            AccessoryToolbarButton.MOVE_UP,
+            AccessoryToolbarButton.DELETE_BACKWARD,
             AccessoryToolbarButton.MOVE_LEFT,
             AccessoryToolbarButton.MOVE_DOWN,
             AccessoryToolbarButton.MOVE_RIGHT,
@@ -250,10 +260,7 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
             accessoryToolbarContentMode = prefs.getString(KEY_ACCESSORY_TOOLBAR_CONTENT_MODE, null)
                 ?.let(AccessoryToolbarContentMode::fromStorageName)
                 ?: AccessoryToolbarContentMode.ICON_AND_TEXT,
-            staticAccessoryButtons = decodeAccessoryButtons(
-                key = KEY_STATIC_ACCESSORY_BUTTONS,
-                fallback = EditorDisplayOptions.DEFAULT_STATIC_ACCESSORY_BUTTONS,
-            ),
+            staticAccessoryButtons = decodeStaticAccessoryButtons(),
             hiddenAccessoryButtons = decodeAccessoryButtons(
                 key = KEY_HIDDEN_ACCESSORY_BUTTONS,
                 fallback = emptySet(),
@@ -272,6 +279,18 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
         prefs.getString(key, null)
             ?.let(::decodeAccessoryButtonSet)
             ?: fallback
+
+    private fun decodeStaticAccessoryButtons(): Set<AccessoryToolbarButton> {
+        val decoded = decodeAccessoryButtons(
+            key = KEY_STATIC_ACCESSORY_BUTTONS,
+            fallback = EditorDisplayOptions.DEFAULT_STATIC_ACCESSORY_BUTTONS,
+        )
+        return if (decoded == EditorDisplayOptions.LEGACY_DEFAULT_STATIC_ACCESSORY_BUTTONS) {
+            EditorDisplayOptions.DEFAULT_STATIC_ACCESSORY_BUTTONS
+        } else {
+            decoded
+        }
+    }
 
     private fun decodeAccessoryButtonSet(raw: String): Set<AccessoryToolbarButton> {
         if (raw.isBlank()) return emptySet()

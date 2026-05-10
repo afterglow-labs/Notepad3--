@@ -6,13 +6,13 @@ import UIKit
 ///  - Theme: "Match system" + all named themes. `.custom` only appears
 ///    after the user has saved at least one custom palette override.
 ///  - Appearance: tabs layout, toolbar labels switch, toolbar rows,
-///    keyboard accessory rows.
+///    bottom toolbar rows.
 ///  - Layout: mobile / classic.
 ///  - Starter content: welcome scratchpad / blank page.
 ///  - Custom palette: pushes `CustomPaletteBuilderViewController`.
 ///
 /// All changes persist immediately via `ThemeController` / `Preferences` so
-/// observers (editor chrome, tab strip, keyboard accessory) repaint live.
+/// observers (editor chrome, tab strip, bottom toolbar) repaint live.
 final class SettingsViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     // MARK: - Model
 
@@ -57,7 +57,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
             Section(title: "Theme", footer: nil, rows: [system] + explicit),
             Section(
                 title: "Appearance",
-                footer: "Toolbar labels always show text under each icon.",
+                footer: "Top toolbar settings affect the classic desktop toolbar. Bottom toolbar settings affect the keyboard/editing controls.",
                 rows: [
                     .tabsLayoutSegment,
                     .toolbarLabelsSwitch,
@@ -223,7 +223,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         case .accessoryRowsSegment:
             let cell = tableView.dequeueReusableCell(withIdentifier: "segment", for: indexPath) as! SegmentedRowCell
             cell.configure(
-                title: "Keyboard accessory rows",
+                title: "Bottom toolbar rows",
                 options: ["1 row", "2 rows"],
                 selectedIndex: prefs.accessoryRows == .single ? 0 : 1,
                 palette: palette
@@ -236,7 +236,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
             let cell = tableView.dequeueReusableCell(withIdentifier: "segment", for: indexPath) as! SegmentedRowCell
             let options = AccessoryToolbarButtonSize.allCases
             cell.configure(
-                title: "Accessory button size",
+                title: "Bottom toolbar button size",
                 options: options.map(\.displayTitle),
                 selectedIndex: options.firstIndex(of: prefs.accessoryToolbarButtonSize) ?? 1,
                 palette: palette
@@ -250,7 +250,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
             let cell = tableView.dequeueReusableCell(withIdentifier: "segment", for: indexPath) as! SegmentedRowCell
             let options = AccessoryToolbarContentMode.allCases
             cell.configure(
-                title: "Accessory button labels",
+                title: "Bottom toolbar labels",
                 options: options.map(\.displayTitle),
                 selectedIndex: options.firstIndex(of: prefs.accessoryToolbarContentMode) ?? 0,
                 palette: palette
@@ -263,8 +263,8 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         case .toolbarButtonPicker:
             let cell = tableView.dequeueReusableCell(withIdentifier: "row", for: indexPath)
             var cfg = cell.defaultContentConfiguration()
-            cfg.text = "Customize toolbar buttons"
-            cfg.secondaryText = "\(prefs.staticAccessoryButtons.count) static, \(prefs.hiddenAccessoryButtons.count) hidden"
+            cfg.text = "Customize bottom toolbar"
+            cfg.secondaryText = "\(prefs.staticAccessoryButtons.count) pinned, \(prefs.hiddenAccessoryButtons.count) hidden"
             cfg.image = UIImage(systemName: "keyboard")
             cfg.textProperties.color = palette.foreground
             cfg.secondaryTextProperties.color = palette.mutedForeground
@@ -499,7 +499,7 @@ private final class SwitchRowCell: UITableViewCell {
     }
 }
 
-// MARK: - Toolbar button picker
+// MARK: - Bottom toolbar button picker
 
 private final class ToolbarButtonsViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     private enum Section: Int, CaseIterable {
@@ -508,7 +508,7 @@ private final class ToolbarButtonsViewController: UIViewController, UITableViewD
 
         var title: String {
             switch self {
-            case .staticButtons: return "Static buttons"
+            case .staticButtons: return "Pinned buttons"
             case .hiddenButtons: return "Hidden buttons"
             }
         }
@@ -516,9 +516,9 @@ private final class ToolbarButtonsViewController: UIViewController, UITableViewD
         var footer: String? {
             switch self {
             case .staticButtons:
-                return "Static buttons stay pinned at the front of the accessory toolbar."
+                return "Pinned buttons stay fixed on the left of the bottom toolbar."
             case .hiddenButtons:
-                return "Hidden buttons are removed from both the pinned and scrolling toolbar areas."
+                return "Hidden buttons are removed from both the pinned and scrolling bottom toolbar areas."
             }
         }
     }
@@ -536,7 +536,7 @@ private final class ToolbarButtonsViewController: UIViewController, UITableViewD
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Toolbar Buttons"
+        title = "Bottom Toolbar"
 
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self

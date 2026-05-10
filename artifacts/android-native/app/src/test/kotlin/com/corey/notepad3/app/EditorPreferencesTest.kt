@@ -78,6 +78,8 @@ class EditorPreferencesTest {
 
         assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.SHIFT))
         assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.MOVE_LEFT))
+        assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.UNDO))
+        assertTrue(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.REDO))
         assertFalse(controller.displayOptions.value.staticAccessoryButtons.contains(AccessoryToolbarButton.CUT))
 
         controller.toggleStaticAccessoryButton(AccessoryToolbarButton.CUT)

@@ -48,7 +48,7 @@ class MobileCommandMenuModelTest {
         val submenu = classicSettingsSubmenus().single()
 
         assertEquals("Appearance", submenu.title)
-        assertEquals(listOf("Toolbar preferences...", "Themes"), submenu.rows.map { it.title })
+        assertEquals(listOf("Bottom toolbar preferences...", "Themes"), submenu.rows.map { it.title })
         assertTrue(submenu.expandable)
     }
 
@@ -56,7 +56,7 @@ class MobileCommandMenuModelTest {
     fun preferencesHomeUsesCategoriesInsteadOfDumpingToolbarButtons() {
         val rows = preferencesHomeRows().map { it.title }
 
-        assertEquals(listOf("Appearance", "Toolbar", "Editor"), rows)
+        assertEquals(listOf("Appearance", "Bottom Toolbar", "Editor"), rows)
         assertFalse(rows.contains("Paste"))
         assertFalse(rows.contains("Move line up"))
         assertFalse(rows.contains("Hidden Toolbar Buttons"))
@@ -82,7 +82,7 @@ class MobileCommandMenuModelTest {
             readOnly = false,
         )
 
-        assertEquals("Hide", toggle.label)
+        assertEquals("Show", toggle.label)
         assertTrue(toggle.active)
         assertTrue(toggle.enabled)
         assertEquals(false, shouldShowSoftKeyboardOnEditorFocus(readOnly = false, keyboardSuppressed = true))

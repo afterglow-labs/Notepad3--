@@ -89,12 +89,22 @@ enum AccessoryToolbarButton: String, Codable, CaseIterable {
         .shift,
         .moveUp,
         .deleteBackward,
+        .undo,
+        .moveLeft,
+        .moveDown,
+        .moveRight,
+        .redo,
+    ]
+
+    static let defaultStaticButtons: Set<AccessoryToolbarButton> = Set(staticCandidates)
+    static let legacyDefaultStaticButtons: Set<AccessoryToolbarButton> = [
+        .shift,
+        .moveUp,
+        .deleteBackward,
         .moveLeft,
         .moveDown,
         .moveRight,
     ]
-
-    static let defaultStaticButtons: Set<AccessoryToolbarButton> = Set(staticCandidates)
 }
 
 // NOTE: `LayoutMode`, `StarterContent`, and `AccessoryRows` are defined in
@@ -187,7 +197,15 @@ final class Preferences {
     }
 
     var staticAccessoryButtons: Set<AccessoryToolbarButton> {
-        get { decodeButtonSet(key: keyStaticAccessoryButtons, fallback: AccessoryToolbarButton.defaultStaticButtons) }
+        get {
+            let decoded = decodeButtonSet(
+                key: keyStaticAccessoryButtons,
+                fallback: AccessoryToolbarButton.defaultStaticButtons
+            )
+            return decoded == AccessoryToolbarButton.legacyDefaultStaticButtons
+                ? AccessoryToolbarButton.defaultStaticButtons
+                : decoded
+        }
         set {
             defaults.set(encodeButtonSet(newValue), forKey: keyStaticAccessoryButtons)
             notify()
