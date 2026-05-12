@@ -1470,7 +1470,7 @@ private final class AccessoryToolbarScrollView: UIScrollView {
         alwaysBounceHorizontal = false
         delaysContentTouches = true
         canCancelContentTouches = true
-        directionalLockEnabled = true
+        isDirectionalLockEnabled = true
         keyboardDismissMode = .none
     }
 
