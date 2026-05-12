@@ -736,6 +736,7 @@ private class KbButton: UIControl {
         accessibilityLabel = label ?? symbolName
 
         contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.isUserInteractionEnabled = false
         contentStack.axis = .vertical
         contentStack.alignment = .center
         contentStack.distribution = .fill
@@ -743,12 +744,14 @@ private class KbButton: UIControl {
         addSubview(contentStack)
 
         imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.isUserInteractionEnabled = false
         imageView.contentMode = .scaleAspectFit
         imageView.image = UIImage(systemName: symbolName,
                                   withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
         contentStack.addArrangedSubview(imageView)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.isUserInteractionEnabled = false
         titleLabel.font = .systemFont(ofSize: 9, weight: .medium)
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 1
@@ -859,18 +862,22 @@ private class KbButton: UIControl {
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        expandedHitBounds.contains(point)
+        bounds.contains(point)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01, bounds.contains(point) else {
+            return nil
+        }
+        return self
     }
 
     func containsInteractivePoint(_ point: CGPoint) -> Bool {
-        expandedHitBounds.contains(point)
+        trackingBounds.contains(point)
     }
 
-    private var expandedHitBounds: CGRect {
-        let minSide: CGFloat = 48
-        let dx = max(0, (minSide - bounds.width) / 2)
-        let dy = max(0, (minSide - bounds.height) / 2)
-        return bounds.insetBy(dx: -dx, dy: -dy)
+    private var trackingBounds: CGRect {
+        bounds.insetBy(dx: -8, dy: -8)
     }
 
     override var isHighlighted: Bool {
