@@ -44,7 +44,6 @@ enum AccessoryToolbarButton: String, Codable, CaseIterable {
     case selectWord = "select_word"
     case selectLine = "select_line"
     case selectAll = "select_all"
-    case undoRedo = "undo_redo"
     case readMode = "read_mode"
     case find
     case insertDate = "insert_date"
@@ -67,7 +66,6 @@ enum AccessoryToolbarButton: String, Codable, CaseIterable {
         case .selectWord: return "Word"
         case .selectLine: return "Line"
         case .selectAll: return "All"
-        case .undoRedo: return "Undo/Redo"
         case .readMode: return "Read"
         case .find: return "Find"
         case .insertDate: return "Date"
@@ -87,7 +85,6 @@ enum AccessoryToolbarButton: String, Codable, CaseIterable {
         .shift,
         .moveUp,
         .deleteBackward,
-        .undoRedo,
         .moveLeft,
         .moveDown,
         .moveRight,
@@ -302,8 +299,8 @@ final class Preferences {
         if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
         return Set(raw.split(separator: ",").compactMap { rawButton in
             let value = String(rawButton.trimmingCharacters(in: .whitespacesAndNewlines))
-            if value == "undo" || value == "redo" {
-                return .undoRedo
+            if value == "undo" || value == "redo" || value == "undo_redo" {
+                return nil
             }
             return AccessoryToolbarButton(rawValue: value)
         })
