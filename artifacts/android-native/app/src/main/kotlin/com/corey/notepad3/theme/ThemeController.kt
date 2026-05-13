@@ -107,7 +107,9 @@ class InMemoryThemePreferences(
 
 class AndroidThemePreferences(context: Context) : ThemePreferences {
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("notepad3pp", Context.MODE_PRIVATE)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val legacyPrefs: SharedPreferences =
+        context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json
 
     private val _themePreference = MutableStateFlow(decodeThemePreference())
@@ -133,7 +135,7 @@ class AndroidThemePreferences(context: Context) : ThemePreferences {
     }
 
     private fun decodeThemePreference(): ThemePreference {
-        val raw = prefs.getString(KEY_THEME_PREFERENCE, null) ?: "named:classic"
+        val raw = stringPreference(KEY_THEME_PREFERENCE) ?: "named:classic"
         if (raw == "system") return ThemePreference.System
         if (raw.startsWith("named:")) {
             val name = ThemeName.fromStorageName(raw.removePrefix("named:"))
@@ -149,12 +151,20 @@ class AndroidThemePreferences(context: Context) : ThemePreferences {
         }
 
     private fun decodeCustomPalette(): Map<String, String> =
-        prefs.getString(KEY_CUSTOM_PALETTE, null)?.let { raw ->
+        stringPreference(KEY_CUSTOM_PALETTE)?.let { raw ->
             runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrNull()
         } ?: emptyMap()
 
+    private fun stringPreference(key: String): String? =
+        prefs.getString(key, null) ?: legacyPrefs.getString(legacyKey(key), null)
+
+    private fun legacyKey(key: String): String =
+        key.replaceFirst(PREFS_NAME, LEGACY_PREFS_NAME)
+
     companion object {
-        private const val KEY_THEME_PREFERENCE = "notepad3pp.themePreference"
-        private const val KEY_CUSTOM_PALETTE = "notepad3pp.customPalette"
+        private const val PREFS_NAME = "notepad3"
+        private const val LEGACY_PREFS_NAME = "notepad3" + "pp"
+        private const val KEY_THEME_PREFERENCE = "notepad3.themePreference"
+        private const val KEY_CUSTOM_PALETTE = "notepad3.customPalette"
     }
 }

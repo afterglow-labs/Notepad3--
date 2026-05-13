@@ -16,7 +16,7 @@ class DocumentStoreTest {
 
         assertEquals("welcome", snapshot.activeId)
         assertEquals("scratchpad.txt", snapshot.documents.single().title)
-        assertTrue(snapshot.documents.single().body.contains("Welcome to Notepad 3++"))
+        assertTrue(snapshot.documents.single().body.contains("Welcome to Notepad 3"))
         assertTrue(snapshot.documents.single().body.contains("text editor"))
     }
 

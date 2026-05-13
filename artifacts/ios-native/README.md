@@ -1,4 +1,4 @@
-# Notepad 3++ — iOS Native (Swift)
+# Notepad 3 — iOS Native (Swift)
 
 Native iOS rewrite of the React Native version in `../mobile/`. Same feature set, native-feeling editor (UITextView + NSAttributedString), word-aware undo, gesture-based undo/redo, syntax coloring without overlay tricks, ~1-3MB binary instead of 10-30MB.
 
@@ -11,9 +11,9 @@ You need Xcode 15+ on macOS and Homebrew.
 ```bash
 brew install xcodegen
 cd artifacts/ios-native
-xcodegen generate         # produces Notepad3.xcodeproj
-open Notepad3.xcodeproj
-# In Xcode: select Notepad3 scheme, your iPhone, Cmd+R
+xcodegen generate         # produces Notepad-3.xcodeproj
+open Notepad-3.xcodeproj
+# In Xcode: select the Notepad 3 scheme, your iPhone, Cmd+R
 ```
 
 The `.xcodeproj` is generated from `Project.yml` and is **gitignored**, so adding new source files just requires re-running `xcodegen generate` — no merge conflicts on `.pbxproj`.
@@ -26,7 +26,7 @@ artifacts/ios-native/
 ├── README.md                      this file
 ├── .gitignore
 └── Sources/
-    └── Notepad3/
+    └── Notepad3/       # Swift module path
         ├── App.swift              @main, scene/window, root view controller
         ├── Info.plist             bundle config
         ├── Models/

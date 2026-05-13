@@ -115,25 +115,27 @@ final class Preferences {
 
     // MARK: Keys
 
-    private let keyTabsLayout       = "notepad3pp.tabsLayout"
-    private let keyToolbarLabels    = "notepad3pp.toolbarLabels"
-    private let keyToolbarRows      = "notepad3pp.toolbarRows"
-    private let keyAccessoryRows    = "notepad3pp.accessoryRows"
-    private let keyAccessoryButtonSize = "notepad3pp.accessoryToolbarButtonSize"
-    private let keyAccessoryContentMode = "notepad3pp.accessoryToolbarContentMode"
-    private let keyStaticAccessoryButtons = "notepad3pp.staticAccessoryButtons"
-    private let keyHiddenAccessoryButtons = "notepad3pp.hiddenAccessoryButtons"
-    private let keyLayoutMode       = "notepad3pp.layoutMode"
-    private let keyStarterContent   = "notepad3pp.starterContent"
-    private let keyCustomPalette    = "notepad3pp.customPalette"
+    private let keyTabsLayout       = "notepad3.tabsLayout"
+    private let keyToolbarLabels    = "notepad3.toolbarLabels"
+    private let keyToolbarRows      = "notepad3.toolbarRows"
+    private let keyAccessoryRows    = "notepad3.accessoryRows"
+    private let keyAccessoryButtonSize = "notepad3.accessoryToolbarButtonSize"
+    private let keyAccessoryContentMode = "notepad3.accessoryToolbarContentMode"
+    private let keyStaticAccessoryButtons = "notepad3.staticAccessoryButtons"
+    private let keyHiddenAccessoryButtons = "notepad3.hiddenAccessoryButtons"
+    private let keyWordWrap        = "notepad3.wordWrap"
+    private let keyLayoutMode       = "notepad3.layoutMode"
+    private let keyStarterContent   = "notepad3.starterContent"
+    private let keyCustomPalette    = "notepad3.customPalette"
 
     private let defaults = UserDefaults.standard
+    private let legacyPrefix = "notepad3" + "pp"
     private var observers: [UUID: () -> Void] = [:]
 
     // MARK: Typed accessors
 
     var tabsLayout: TabsLayout {
-        get { TabsLayout(rawValue: defaults.string(forKey: keyTabsLayout) ?? "") ?? .tabs }
+        get { TabsLayout(rawValue: stringValue(forKey: keyTabsLayout) ?? "") ?? .tabs }
         set {
             defaults.set(newValue.rawValue, forKey: keyTabsLayout)
             notify()
@@ -143,8 +145,8 @@ final class Preferences {
     var toolbarLabels: Bool {
         get {
             // Default off to match RN behavior.
-            if defaults.object(forKey: keyToolbarLabels) == nil { return false }
-            return defaults.bool(forKey: keyToolbarLabels)
+            if !objectExists(forKey: keyToolbarLabels) { return false }
+            return boolValue(forKey: keyToolbarLabels)
         }
         set {
             defaults.set(newValue, forKey: keyToolbarLabels)
@@ -153,7 +155,7 @@ final class Preferences {
     }
 
     var toolbarRows: ToolbarRows {
-        get { ToolbarRows(rawValue: defaults.string(forKey: keyToolbarRows) ?? "") ?? .single }
+        get { ToolbarRows(rawValue: stringValue(forKey: keyToolbarRows) ?? "") ?? .single }
         set {
             defaults.set(newValue.rawValue, forKey: keyToolbarRows)
             notify()
@@ -161,7 +163,7 @@ final class Preferences {
     }
 
     var accessoryRows: AccessoryRows {
-        get { AccessoryRows(rawValue: defaults.string(forKey: keyAccessoryRows) ?? "") ?? .single }
+        get { AccessoryRows(rawValue: stringValue(forKey: keyAccessoryRows) ?? "") ?? .single }
         set {
             defaults.set(newValue.rawValue, forKey: keyAccessoryRows)
             notify()
@@ -170,7 +172,7 @@ final class Preferences {
 
     var accessoryToolbarButtonSize: AccessoryToolbarButtonSize {
         get {
-            AccessoryToolbarButtonSize(rawValue: defaults.string(forKey: keyAccessoryButtonSize) ?? "")
+            AccessoryToolbarButtonSize(rawValue: stringValue(forKey: keyAccessoryButtonSize) ?? "")
                 ?? .medium
         }
         set {
@@ -181,7 +183,7 @@ final class Preferences {
 
     var accessoryToolbarContentMode: AccessoryToolbarContentMode {
         get {
-            AccessoryToolbarContentMode(rawValue: defaults.string(forKey: keyAccessoryContentMode) ?? "")
+            AccessoryToolbarContentMode(rawValue: stringValue(forKey: keyAccessoryContentMode) ?? "")
                 ?? .iconAndText
         }
         set {
@@ -210,6 +212,17 @@ final class Preferences {
         get { decodeButtonSet(key: keyHiddenAccessoryButtons, fallback: []) }
         set {
             defaults.set(encodeButtonSet(newValue), forKey: keyHiddenAccessoryButtons)
+            notify()
+        }
+    }
+
+    var wordWrap: Bool {
+        get {
+            if !objectExists(forKey: keyWordWrap) { return true }
+            return boolValue(forKey: keyWordWrap)
+        }
+        set {
+            defaults.set(newValue, forKey: keyWordWrap)
             notify()
         }
     }
@@ -243,7 +256,7 @@ final class Preferences {
     }
 
     var layoutMode: LayoutMode {
-        get { LayoutMode(rawValue: defaults.string(forKey: keyLayoutMode) ?? "") ?? .mobile }
+        get { LayoutMode(rawValue: stringValue(forKey: keyLayoutMode) ?? "") ?? .mobile }
         set {
             defaults.set(newValue.rawValue, forKey: keyLayoutMode)
             notify()
@@ -251,7 +264,7 @@ final class Preferences {
     }
 
     var starterContent: StarterContent {
-        get { StarterContent(rawValue: defaults.string(forKey: keyStarterContent) ?? "") ?? .welcome }
+        get { StarterContent(rawValue: stringValue(forKey: keyStarterContent) ?? "") ?? .welcome }
         set {
             defaults.set(newValue.rawValue, forKey: keyStarterContent)
             notify()
@@ -262,7 +275,7 @@ final class Preferences {
     /// set yet" (so the Custom theme option can stay hidden).
     var customPalette: [String: String] {
         get {
-            guard let data = defaults.data(forKey: keyCustomPalette),
+            guard let data = dataValue(forKey: keyCustomPalette),
                   let dict = try? JSONDecoder().decode([String: String].self, from: data)
             else { return [:] }
             return dict
@@ -295,7 +308,7 @@ final class Preferences {
     }
 
     private func decodeButtonSet(key: String, fallback: Set<AccessoryToolbarButton>) -> Set<AccessoryToolbarButton> {
-        guard let raw = defaults.string(forKey: key) else { return fallback }
+        guard let raw = stringValue(forKey: key) else { return fallback }
         if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
         return Set(raw.split(separator: ",").compactMap { rawButton in
             let value = String(rawButton.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -308,5 +321,27 @@ final class Preferences {
 
     private func encodeButtonSet(_ buttons: Set<AccessoryToolbarButton>) -> String {
         buttons.map(\.rawValue).sorted().joined(separator: ",")
+    }
+
+    private func objectExists(forKey key: String) -> Bool {
+        defaults.object(forKey: key) != nil || defaults.object(forKey: legacyKey(for: key)) != nil
+    }
+
+    private func stringValue(forKey key: String) -> String? {
+        defaults.string(forKey: key) ?? defaults.string(forKey: legacyKey(for: key))
+    }
+
+    private func boolValue(forKey key: String) -> Bool {
+        if defaults.object(forKey: key) != nil { return defaults.bool(forKey: key) }
+        return defaults.bool(forKey: legacyKey(for: key))
+    }
+
+    private func dataValue(forKey key: String) -> Data? {
+        defaults.data(forKey: key) ?? defaults.data(forKey: legacyKey(for: key))
+    }
+
+    private func legacyKey(for key: String) -> String {
+        guard key.hasPrefix("notepad3.") else { return key }
+        return legacyPrefix + String(key.dropFirst("notepad3".count))
     }
 }

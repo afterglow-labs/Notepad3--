@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.corey.android.np3plusplus"
+        applicationId = "com.corey.android.notepad3"
         minSdk = 30
         targetSdk = 34
         versionCode = 1

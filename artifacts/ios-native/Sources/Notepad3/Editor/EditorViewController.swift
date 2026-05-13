@@ -40,6 +40,16 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // Pointer overlay + optional trackpad
     private let pointerOverlay = PointerOverlay()
     private var virtualTrackpad: VirtualTrackpad?
+    private var trackpadLeadingConstraint: NSLayoutConstraint?
+    private var trackpadTopConstraint: NSLayoutConstraint?
+    private var trackpadWidthConstraint: NSLayoutConstraint?
+    private var trackpadHeightConstraint: NSLayoutConstraint?
+    private var trackpadSizeIndex = 1
+    private static let trackpadSizes: [CGSize] = [
+        CGSize(width: 180, height: 132),
+        CGSize(width: 220, height: 160),
+        CGSize(width: 270, height: 198),
+    ]
 
     // Mode state (not persisted)
     private var zenMode = false
@@ -63,6 +73,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private var keyboardNotificationTokens: [NSObjectProtocol] = []
     private var latestKeyboardFrameInScreen: CGRect?
     private var preferredVerticalCaretX: CGFloat?
+    private var lastAppliedWordWrap: Bool?
+    private var lastAppliedTextContainerWidth: CGFloat = -1
 
     // Selection-extension state for the bottom toolbar's Shift toggle.
     // When `shiftAnchor` is non-nil, arrow taps extend the selection from
@@ -131,6 +143,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         tabStrip.reload(notes: store.notes, activeId: store.activeId)
         classicToolbar.setLabelsVisible(prefs.toolbarLabels)
         classicToolbar.setRows(prefs.toolbarRows == .double ? 2 : 1)
+        applyWordWrapPreference()
         rehighlight(force: true)
         refreshStatusBar()
 
@@ -158,7 +171,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        applyWordWrapPreference()
         updateKeyboardAccessoryPosition(animated: false)
+        clampTrackpadPosition()
     }
 
     deinit {
@@ -212,6 +227,37 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
         separator.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(separator)
+    }
+
+    private func applyWordWrapPreference() {
+        let wrap = prefs.wordWrap
+        let targetWidth: CGFloat
+        if wrap {
+            targetWidth = max(0, textView.bounds.width - textView.textContainerInset.left - textView.textContainerInset.right)
+        } else {
+            targetWidth = max(24_000, textView.bounds.width * 4)
+        }
+
+        guard lastAppliedWordWrap != wrap || abs(lastAppliedTextContainerWidth - targetWidth) > 0.5 else {
+            return
+        }
+        lastAppliedWordWrap = wrap
+        lastAppliedTextContainerWidth = targetWidth
+
+        textView.textContainer.lineBreakMode = wrap ? .byWordWrapping : .byClipping
+        textView.textContainer.widthTracksTextView = wrap
+        textView.textContainer.size = CGSize(width: targetWidth, height: .greatestFiniteMagnitude)
+        textView.showsHorizontalScrollIndicator = !wrap
+        textView.alwaysBounceHorizontal = !wrap
+        if wrap, abs(textView.contentOffset.x) > 0.5 {
+            var offset = textView.contentOffset
+            offset.x = 0
+            textView.setContentOffset(offset, animated: false)
+        }
+
+        let fullRange = NSRange(location: 0, length: textView.textStorage.length)
+        textView.layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        lineGutter.refreshText()
     }
 
     private func configureFindBar() {
@@ -302,6 +348,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
         aeroMenuBar.onSetToolbarRowsSingle = { [weak self] in self?.prefs.toolbarRows = .single; self?.classicToolbar.setRows(1) }
         aeroMenuBar.onSetToolbarRowsDouble = { [weak self] in self?.prefs.toolbarRows = .double; self?.classicToolbar.setRows(2) }
+        aeroMenuBar.onToggleWordWrap = { [weak self] in self?.prefs.wordWrap.toggle() }
         aeroMenuBar.onToggleZen = { [weak self] in self?.setZenMode(!(self?.zenMode ?? false)) }
         aeroMenuBar.onToggleCompare = { [weak self] in self?.presentCompare() }
         aeroMenuBar.onSwitchToMobileLayout = { [weak self] in self?.prefs.layoutMode = .mobile }
@@ -315,6 +362,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         aeroMenuBar.isToolbarOpen = { [weak self] in self?.toolbarOpen ?? true }
         aeroMenuBar.isToolbarLabelsVisible = { [weak self] in self?.prefs.toolbarLabels ?? false }
         aeroMenuBar.isToolbarRowsDouble = { [weak self] in (self?.prefs.toolbarRows ?? .single) == .double }
+        aeroMenuBar.isWordWrapEnabled = { [weak self] in self?.prefs.wordWrap ?? true }
         aeroMenuBar.isZenMode = { [weak self] in self?.zenMode ?? false }
         aeroMenuBar.isCompareOpen = { false /* compare is modal, never "open" in-place */ }
         aeroMenuBar.currentTheme = { [weak self] in self?.themes.resolvedTheme ?? .light }
@@ -444,9 +492,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             findBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             findHeight,
 
-            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-
             pointerOverlay.topAnchor.constraint(equalTo: view.topAnchor),
             pointerOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pointerOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -474,6 +519,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             separator.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
 
             textView.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             textView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
 
             statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -528,6 +575,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             lineGutter.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
 
             textView.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            textView.leadingAnchor.constraint(equalTo: lineGutter.trailingAnchor),
+            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             textView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
 
             statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -547,6 +596,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         // band where the chrome used to be.
         zenConstraints = [
             textView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             textView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ]
 
@@ -774,6 +825,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         lineGutter.applyPalette(palette)
         keyboardAccessory.applyPalette(palette)
         pointerOverlay.applyPalette(palette)
+        virtualTrackpad?.applyPalette(palette)
 
         let nav = UINavigationBarAppearance()
         nav.configureWithDefaultBackground()
@@ -811,6 +863,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         keyboardAccessory.staticButtons = prefs.staticAccessoryButtons
         keyboardAccessory.hiddenButtons = prefs.hiddenAccessoryButtons
         updateKeyboardAccessoryHeight(animated: false)
+        applyWordWrapPreference()
         // Custom palette may have changed
         applyPalette()
     }
@@ -1459,16 +1512,17 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     private func toggleTrackpad() {
-        if let existing = virtualTrackpad {
-            existing.removeFromSuperview()
-            virtualTrackpad = nil
-            pointerOverlay.isVisible = false
+        if virtualTrackpad != nil {
+            removeTrackpad()
             return
         }
         let pad = VirtualTrackpad()
         pad.translatesAutoresizingMaskIntoConstraints = false
         pad.rootHitTestView = view
         pad.onPointerMoved = { [weak self] point in self?.pointerOverlay.pointerPosition = point }
+        pad.onMoveDelta = { [weak self] delta in self?.moveTrackpad(by: delta) }
+        pad.onCycleSize = { [weak self] in self?.cycleTrackpadSize() }
+        pad.onClose = { [weak self] in self?.removeTrackpad() }
         pad.onClick = { [weak self] point in
             guard let self else { return }
             self.pointerOverlay.pointerPosition = point
@@ -1481,16 +1535,81 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
         pad.applyPalette(themes.palette)
         view.addSubview(pad)
+        view.layoutIfNeeded()
+
+        let size = Self.trackpadSizes[trackpadSizeIndex]
         let barHeight: CGFloat = prefs.layoutMode == .mobile ? 64 : 28
-        NSLayoutConstraint.activate([
-            pad.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
-            pad.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -(barHeight + 16)),
-            pad.widthAnchor.constraint(equalToConstant: 200),
-            pad.heightAnchor.constraint(equalToConstant: 150),
-        ])
+        let safe = view.safeAreaInsets
+        let leading = max(safe.left + 12, view.bounds.width - safe.right - size.width - 12)
+        let top = max(safe.top + 12, view.bounds.height - safe.bottom - barHeight - 16 - size.height)
+        let leadingConstraint = pad.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: leading)
+        let topConstraint = pad.topAnchor.constraint(equalTo: view.topAnchor, constant: top)
+        let widthConstraint = pad.widthAnchor.constraint(equalToConstant: size.width)
+        let heightConstraint = pad.heightAnchor.constraint(equalToConstant: size.height)
+        trackpadLeadingConstraint = leadingConstraint
+        trackpadTopConstraint = topConstraint
+        trackpadWidthConstraint = widthConstraint
+        trackpadHeightConstraint = heightConstraint
+        NSLayoutConstraint.activate([leadingConstraint, topConstraint, widthConstraint, heightConstraint])
         virtualTrackpad = pad
         pointerOverlay.isVisible = true
+        view.bringSubviewToFront(pad)
         view.bringSubviewToFront(pointerOverlay)
+    }
+
+    private func removeTrackpad() {
+        virtualTrackpad?.removeFromSuperview()
+        virtualTrackpad = nil
+        trackpadLeadingConstraint = nil
+        trackpadTopConstraint = nil
+        trackpadWidthConstraint = nil
+        trackpadHeightConstraint = nil
+        pointerOverlay.isVisible = false
+    }
+
+    private func moveTrackpad(by delta: CGPoint) {
+        guard let leading = trackpadLeadingConstraint, let top = trackpadTopConstraint else { return }
+        leading.constant += delta.x
+        top.constant += delta.y
+        clampTrackpadPosition()
+    }
+
+    private func cycleTrackpadSize() {
+        guard let width = trackpadWidthConstraint,
+              let height = trackpadHeightConstraint,
+              let leading = trackpadLeadingConstraint,
+              let top = trackpadTopConstraint
+        else { return }
+
+        let currentCenter = CGPoint(
+            x: leading.constant + (width.constant / 2),
+            y: top.constant + (height.constant / 2)
+        )
+        trackpadSizeIndex = (trackpadSizeIndex + 1) % Self.trackpadSizes.count
+        let size = Self.trackpadSizes[trackpadSizeIndex]
+        width.constant = size.width
+        height.constant = size.height
+        leading.constant = currentCenter.x - (size.width / 2)
+        top.constant = currentCenter.y - (size.height / 2)
+        clampTrackpadPosition()
+        UIView.animate(withDuration: 0.16) { self.view.layoutIfNeeded() }
+    }
+
+    private func clampTrackpadPosition() {
+        guard virtualTrackpad != nil,
+              let leading = trackpadLeadingConstraint,
+              let top = trackpadTopConstraint,
+              let width = trackpadWidthConstraint,
+              let height = trackpadHeightConstraint
+        else { return }
+
+        let safe = view.safeAreaInsets
+        let minX = safe.left + 8
+        let minY = safe.top + 8
+        let maxX = max(minX, view.bounds.width - safe.right - width.constant - 8)
+        let maxY = max(minY, view.bounds.height - safe.bottom - height.constant - 8)
+        leading.constant = max(minX, min(maxX, leading.constant))
+        top.constant = max(minY, min(maxY, top.constant))
     }
 
     // MARK: - Presentations
@@ -1598,6 +1717,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                 SheetRow(icon: "minus.square", title: "Delete current line", destructive: true) { [weak self] in self?.deleteCurrentLine() },
             ]),
             SheetSection(title: "View", rows: [
+                SheetRow(icon: "text.justify.left", title: "Word wrap", checked: prefs.wordWrap) { [weak self] in self?.prefs.wordWrap.toggle() },
                 SheetRow(icon: readMode ? "eye.slash" : "eye", title: "Read mode", checked: readMode) { [weak self] in self?.readMode.toggle() },
                 SheetRow(icon: "rectangle.compress.vertical", title: "Zen mode", checked: zenMode) { [weak self] in self?.setZenMode(!(self?.zenMode ?? false)) },
                 SheetRow(icon: "rectangle.split.1x2", title: "Compare documents") { [weak self] in self?.presentCompare() },
@@ -1653,7 +1773,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     private func presentAbout() {
         let alert = UIAlertController(
-            title: "Notepad 3++",
+            title: "Notepad 3",
             message: """
             A pocket text editor that captures the feel of classic desktop notepad utilities.
 

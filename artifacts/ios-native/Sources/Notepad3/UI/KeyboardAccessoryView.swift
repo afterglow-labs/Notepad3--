@@ -725,22 +725,22 @@ final class KeyboardAccessoryView: UIView {
     private var bonusPages: [[[BonusKeySpec]]] {
         [
             [
-                key("house", "Home") { $0.onHome?() },
-                holdKey("arrow.up", "Up") { $0.onArrow?(.up) },
+                key("textformat.abc", "Word") { $0.onSelectWord?() },
                 key("arrow.up.to.line", "Pg Up") { $0.onPageUp?() },
+                key("house", "Home") { $0.onHome?() },
+                key("character.textbox", "All") { $0.onSelectAll?() },
+                key("text.line.first.and.arrowtriangle.forward", "Line") { $0.onSelectLine?() },
+                key("arrow.down.to.line", "Pg Dn") { $0.onPageDown?() },
                 key("line.3.horizontal", "End") { $0.onEnd?() },
+                key("arrow.right.to.line", "Tab") { $0.onTab?() },
+                key("arrow.uturn.backward", "Undo") { $0.onUndo?() },
+                key("arrow.uturn.forward", "Redo") { $0.onRedo?() },
+                holdKey("arrow.up", "Up") { $0.onArrow?(.up) },
+                key("ellipsis.circle", "More") { $0.onMore?() },
+                key("magnifyingglass", "Find") { $0.onFind?() },
                 holdKey("arrow.left", "Left") { $0.onArrow?(.left) },
                 holdKey("arrow.down", "Down") { $0.onArrow?(.down) },
                 holdKey("arrow.right", "Right") { $0.onArrow?(.right) },
-                key("arrow.right.to.line", "Tab") { $0.onTab?() },
-                key("textformat.abc", "Word") { $0.onSelectWord?() },
-                key("text.line.first.and.arrowtriangle.forward", "Line") { $0.onSelectLine?() },
-                key("character.textbox", "All") { $0.onSelectAll?() },
-                key("arrow.uturn.backward", "Undo") { $0.onUndo?() },
-                key("arrow.uturn.forward", "Redo") { $0.onRedo?() },
-                key("magnifyingglass", "Find") { $0.onFind?() },
-                key("clock", "Date") { $0.onInsertDate?() },
-                key("ellipsis.circle", "More") { $0.onMore?() },
             ],
             [
                 textKey("/", "/") { $0.onInsertText?("/") },
@@ -786,7 +786,7 @@ final class KeyboardAccessoryView: UIView {
                 key("arrow.down.to.line", "Go to") { $0.onGotoLine?() },
                 key("folder", "Open") { $0.onOpenDocs?() },
                 key("rectangle.split.1x2", "Compare") { $0.onCompare?() },
-                key("doc.text.magnifyingglass", "Docs") { $0.onOpenDocs?() },
+                key("clock", "Date") { $0.onInsertDate?() },
                 key("shift", "Shift") { $0.onShiftToggle?() },
                 key("eye.slash", "Read") { $0.onReadToggle?() },
                 key("keyboard", "Kbd") { $0.setBonusKeysVisible(false, notify: true) },
@@ -1058,7 +1058,8 @@ private class KbButton: UIControl {
                 withConfiguration: UIImage.SymbolConfiguration(pointSize: symbolPointSize(for: size), weight: .regular)
             )
         }
-        titleLabel.font = .systemFont(ofSize: fontSize(for: size), weight: .medium)
+        let textOnly = effectiveContentMode == .textOnly
+        titleLabel.font = .systemFont(ofSize: fontSize(for: size, textOnly: textOnly), weight: textOnly ? .regular : .medium)
 
         let hasText = !(label ?? "").isEmpty
         switch effectiveContentMode {
@@ -1098,11 +1099,19 @@ private class KbButton: UIControl {
         }
     }
 
-    private func fontSize(for size: AccessoryToolbarButtonSize) -> CGFloat {
-        switch size {
-        case .small: return 8
-        case .medium: return 9
-        case .large: return 11
+    private func fontSize(for size: AccessoryToolbarButtonSize, textOnly: Bool) -> CGFloat {
+        if textOnly {
+            switch size {
+            case .small: return 20
+            case .medium: return 24
+            case .large: return 28
+            }
+        } else {
+            switch size {
+            case .small: return 8
+            case .medium: return 9
+            case .large: return 11
+            }
         }
     }
 

@@ -255,6 +255,6 @@ private fun menuBarSections(): List<MobileMenuSection> =
         ),
         MobileMenuSection(
             title = "Help",
-            rows = listOf("About Notepad 3++").map(::MobileMenuRow),
+            rows = listOf("About Notepad 3").map(::MobileMenuRow),
         ),
     )

@@ -1,4 +1,4 @@
-name: Notepad3
+name: Notepad-3
 options:
   bundleIdPrefix: com.corey.ios
   deploymentTarget:
@@ -16,7 +16,7 @@ settings:
     GCC_TREAT_WARNINGS_AS_ERRORS: NO
 
 targets:
-  Notepad3:
+  "Notepad 3":
     type: application
     platform: iOS
     deploymentTarget: "16.0"
@@ -25,7 +25,7 @@ targets:
     info:
       path: Sources/Notepad3/Info.plist
       properties:
-        CFBundleDisplayName: Notepad 3++
+        CFBundleDisplayName: Notepad 3
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
         UILaunchScreen:
@@ -46,6 +46,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.corey.ios.np3plusplus.native
+        PRODUCT_MODULE_NAME: Notepad3
+        PRODUCT_BUNDLE_IDENTIFIER: com.corey.ios.notepad3.native
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

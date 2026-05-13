@@ -368,15 +368,15 @@ class EditorCommandsTest {
 
     @Test
     fun coalescesAdjacentTypedCharactersIntoOneUndoStep() {
-        val history = EditorHistory("Welcome to Notepad 3++")
+        val history = EditorHistory("Welcome to Notepad 3")
 
-        history.recordUserEdit("WelcomeA to Notepad 3++")
-        history.recordUserEdit("WelcomeAD to Notepad 3++")
-        history.recordUserEdit("WelcomeADB to Notepad 3++")
+        history.recordUserEdit("WelcomeA to Notepad 3")
+        history.recordUserEdit("WelcomeAD to Notepad 3")
+        history.recordUserEdit("WelcomeADB to Notepad 3")
 
-        assertEquals("Welcome to Notepad 3++", history.undo())
+        assertEquals("Welcome to Notepad 3", history.undo())
         assertNull(history.undo())
-        assertEquals("WelcomeADB to Notepad 3++", history.redo())
+        assertEquals("WelcomeADB to Notepad 3", history.redo())
     }
 
     @Test

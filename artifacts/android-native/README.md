@@ -1,6 +1,6 @@
-# Notepad 3++ — Native Android Port
+# Notepad 3 — Native Android Port
 
-Kotlin / Jetpack Compose implementation of Notepad 3++ for Android. Sibling to the iOS Swift port at `../ios-native/`. The Android app tracks iOS parity where it makes sense, while still taking Android-specific wins when the platform can do more.
+Kotlin / Jetpack Compose implementation of Notepad 3 for Android. Sibling to the iOS Swift port at `../ios-native/`. The Android app tracks iOS parity where it makes sense, while still taking Android-specific wins when the platform can do more.
 
 See `docs/superpowers/specs/2026-04-26-android-native-port-design.md` for the full design and `docs/superpowers/plans/2026-04-26-android-native-phase-0.md` for the phase-0 plan.
 
@@ -26,7 +26,7 @@ See `docs/superpowers/specs/2026-04-26-android-native-port-design.md` for the fu
 - status readout for language, read-only state, lines, characters, caret line/column, and selection length
 - JVM tests for language detection, persistence, theme resolution, editor preferences, editor commands, editor status, undo grouping, Markdown preview parsing, and line diffing
 
-The next useful slice is deeper editor parity: keyboard accessory tools, full compare panes with scroll sync, line-number gutter work, richer document metadata, and more Notepad++-style editing commands.
+The next useful slice is deeper editor parity: keyboard accessory tools, full compare panes with scroll sync, line-number gutter work, richer document metadata, and more classic desktop editing commands.
 
 ## Local build
 
@@ -50,10 +50,10 @@ Push a tag matching `android-native-v*` (e.g. `android-native-v0.1.0`) or run th
 ```bash
 gh workflow run "Build Android Native" --ref <branch>
 gh run watch --exit-status
-gh run download <run-id> -n notepad3-android-debug-apk
+gh run download <run-id> -n notepad-3-android-debug-apk
 ```
 
-Artifact: `notepad3-android-debug-apk` containing `app-debug.apk`.
+Artifact: `notepad-3-android-debug-apk` containing `app-debug.apk`.
 
 ## Sideloading
 

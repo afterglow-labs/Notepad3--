@@ -34,7 +34,7 @@ data class TextDocument(
                 id = "welcome",
                 title = "scratchpad.txt",
                 body = """
-                    Welcome to Notepad 3++
+                    Welcome to Notepad 3
 
                     A fast Android text editor with the feel of classic desktop notepad utilities.
 

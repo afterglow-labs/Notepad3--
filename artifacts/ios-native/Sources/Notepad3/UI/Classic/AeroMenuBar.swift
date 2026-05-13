@@ -36,6 +36,7 @@ final class AeroMenuBar: UIView {
     var onToggleToolbarLabels: (() -> Void)?
     var onSetToolbarRowsSingle: (() -> Void)?
     var onSetToolbarRowsDouble: (() -> Void)?
+    var onToggleWordWrap: (() -> Void)?
     var onToggleZen: (() -> Void)?
     var onToggleCompare: (() -> Void)?
     var onSwitchToMobileLayout: (() -> Void)?
@@ -54,6 +55,7 @@ final class AeroMenuBar: UIView {
     var isToolbarOpen: (() -> Bool)?
     var isToolbarLabelsVisible: (() -> Bool)?
     var isToolbarRowsDouble: (() -> Bool)?
+    var isWordWrapEnabled: (() -> Bool)?
     var isZenMode: (() -> Bool)?
     var isCompareOpen: (() -> Bool)?
     var currentTheme: (() -> ThemeName)?
@@ -259,6 +261,7 @@ final class AeroMenuBar: UIView {
         let toolbarOpen   = isToolbarOpen?()           ?? true
         let labelsVisible = isToolbarLabelsVisible?()  ?? false
         let rowsDouble    = isToolbarRowsDouble?()     ?? false
+        let wordWrap      = isWordWrapEnabled?()       ?? true
         let zen           = isZenMode?()               ?? false
         let compare       = isCompareOpen?()           ?? false
 
@@ -270,6 +273,7 @@ final class AeroMenuBar: UIView {
         return [
             .action(title: "Toolbar",                  symbol: "rectangle.topthird.inset.filled", checked: toolbarOpen,   destructive: false) { [weak self] in self?.onToggleToolbar?() },
             .action(title: "Show labels",              symbol: "textformat.size",                 checked: labelsVisible, destructive: false) { [weak self] in self?.onToggleToolbarLabels?() },
+            .action(title: "Word wrap",                symbol: "text.justify.left",               checked: wordWrap,      destructive: false) { [weak self] in self?.onToggleWordWrap?() },
             .divider,
             .submenu(title: "Toolbar rows", symbol: "rectangle.split.1x2", children: rowsSubmenu),
             .divider,
@@ -307,7 +311,7 @@ final class AeroMenuBar: UIView {
 
     private func helpRows() -> [ClassicMenuPopover.Row] {
         [
-            .action(title: "About Notepad 3++", symbol: "info.circle", checked: false, destructive: false) { [weak self] in self?.onAbout?() },
+            .action(title: "About Notepad 3", symbol: "info.circle", checked: false, destructive: false) { [weak self] in self?.onAbout?() },
             .action(title: "Version",           symbol: "tag",         checked: false, destructive: false) { [weak self] in self?.onVersion?() },
         ]
     }

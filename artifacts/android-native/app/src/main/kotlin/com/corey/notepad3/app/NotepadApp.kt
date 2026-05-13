@@ -1415,7 +1415,7 @@ private fun ClassicCaptionBar(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            text = "${document.title} - Notepad 3++",
+            text = "${document.title} - Notepad 3",
             color = palette.primaryForeground.toColor(),
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
             overflow = TextOverflow.Ellipsis,
@@ -1746,7 +1746,7 @@ private fun ClassicMenuBar(
             palette = palette,
             onOpen = { openMenu = it },
         ) {
-            ClassicDropdownMenuItem("About Notepad 3++", Icons.Filled.Info, palette) { runMenuAction(onShowAbout) }
+            ClassicDropdownMenuItem("About Notepad 3", Icons.Filled.Info, palette) { runMenuAction(onShowAbout) }
         }
         Spacer(Modifier.weight(1f))
         ClassicMiniIconButton(icon = Icons.Filled.PhoneAndroid, label = "Mobile layout", palette = palette, onClick = onSwitchToMobile)
@@ -2499,7 +2499,7 @@ private fun AboutPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "Notepad 3++",
+                text = "Notepad 3",
                 color = palette.foreground.toColor(),
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
             )
@@ -3112,7 +3112,7 @@ private fun MorePanel(
                             "Unique lines" -> MenuActionRow(Icons.Filled.FilterList, title, palette, enabled = !readMode) { run(onRemoveDuplicateLines) }
                         }
                         "Help" -> when (title) {
-                            "About Notepad 3++" -> MenuActionRow(Icons.Filled.Info, title, palette) { run(onShowAbout) }
+                            "About Notepad 3" -> MenuActionRow(Icons.Filled.Info, title, palette) { run(onShowAbout) }
                         }
                     }
                 }

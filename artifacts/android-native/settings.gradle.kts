@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "notepad3-android"
+rootProject.name = "notepad-3-android"
 include(":app")

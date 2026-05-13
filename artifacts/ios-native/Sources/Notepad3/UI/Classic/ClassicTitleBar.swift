@@ -51,7 +51,7 @@ final class ClassicTitleBar: UIView {
     }
 
     func setTitle(_ title: String) {
-        titleLabel.text = "\(title) - Notepad 3++"
+        titleLabel.text = "\(title) - Notepad 3"
     }
 
     func applyPalette(_ p: Palette) {

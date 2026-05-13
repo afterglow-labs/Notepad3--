@@ -38,8 +38,8 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
-            -project Notepad3.xcodeproj \
-            -scheme Notepad3 \
+            -project Notepad-3.xcodeproj \
+            -scheme "Notepad 3" \
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf Payload Notepad3-unsigned.ipa
+          rm -rf Payload Notepad-3-unsigned.ipa
           mkdir -p Payload
           PRODUCTS_DIR="build/Build/Products/Release-iphoneos"
           if [ ! -d "$PRODUCTS_DIR" ]; then
@@ -74,12 +74,12 @@ jobs:
           echo "Found app: $APP_PATH"
           du -sh "$APP_PATH" || true
           cp -R "$APP_PATH" Payload/
-          zip -qry Notepad3-unsigned.ipa Payload
-          ls -lh Notepad3-unsigned.ipa
+          zip -qry Notepad-3-unsigned.ipa Payload
+          ls -lh Notepad-3-unsigned.ipa
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Notepad3-unsigned.ipa
-          path: artifacts/ios-native/Notepad3-unsigned.ipa
+          name: Notepad-3-unsigned.ipa
+          path: artifacts/ios-native/Notepad-3-unsigned.ipa
           if-no-files-found: error

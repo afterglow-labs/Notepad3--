@@ -27,6 +27,9 @@ final class VirtualTrackpad: UIView {
     /// should forward this to `rootHitTestView.hitTest(point, with: nil)`.
     /// Point is in window coordinates.
     var onClick: ((CGPoint) -> Void)?
+    var onMoveDelta: ((CGPoint) -> Void)?
+    var onCycleSize: (() -> Void)?
+    var onClose: (() -> Void)?
 
     // MARK: Constants
 
@@ -39,6 +42,8 @@ final class VirtualTrackpad: UIView {
     private let header = GradientView()
     private let headerIcon = UIImageView()
     private let headerLabel = UILabel()
+    private let anchorButton = UIButton(type: .system)
+    private let sizeButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
     private let surface = UIView()
     private let gridView = GridView()
@@ -69,6 +74,10 @@ final class VirtualTrackpad: UIView {
     /// Whether the current drag has crossed the move threshold. If not, the
     /// gesture is treated as a tap on release.
     private var movedDuringPan: Bool = false
+    private var lastHeaderTranslation: CGPoint = .zero
+    private var isAnchored = false {
+        didSet { refreshAnchorButton() }
+    }
 
     // MARK: Init
 
@@ -110,11 +119,31 @@ final class VirtualTrackpad: UIView {
         header.addSubview(headerIcon)
 
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerLabel.text = "Trackpad  drag here, pointer moves above"
+        headerLabel.text = "Trackpad"
         headerLabel.font = .systemFont(ofSize: 11, weight: .medium)
         headerLabel.numberOfLines = 1
         headerLabel.lineBreakMode = .byTruncatingTail
         header.addSubview(headerLabel)
+
+        anchorButton.translatesAutoresizingMaskIntoConstraints = false
+        var anchorCfg = UIButton.Configuration.plain()
+        anchorCfg.image = UIImage(systemName: "pin",
+                                  withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        anchorCfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
+        anchorButton.configuration = anchorCfg
+        anchorButton.accessibilityLabel = "Anchor trackpad"
+        anchorButton.addTarget(self, action: #selector(anchorTapped), for: .touchUpInside)
+        header.addSubview(anchorButton)
+
+        sizeButton.translatesAutoresizingMaskIntoConstraints = false
+        var sizeCfg = UIButton.Configuration.plain()
+        sizeCfg.image = UIImage(systemName: "arrow.up.left.and.arrow.down.right",
+                                withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        sizeCfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
+        sizeButton.configuration = sizeCfg
+        sizeButton.accessibilityLabel = "Cycle trackpad size"
+        sizeButton.addTarget(self, action: #selector(sizeTapped), for: .touchUpInside)
+        header.addSubview(sizeButton)
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         var closeCfg = UIButton.Configuration.plain()
@@ -221,7 +250,17 @@ final class VirtualTrackpad: UIView {
 
             headerLabel.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: 6),
             headerLabel.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-            headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -4),
+            headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: anchorButton.leadingAnchor, constant: -4),
+
+            anchorButton.trailingAnchor.constraint(equalTo: sizeButton.leadingAnchor, constant: -2),
+            anchorButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            anchorButton.widthAnchor.constraint(equalToConstant: 24),
+            anchorButton.heightAnchor.constraint(equalToConstant: 24),
+
+            sizeButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -2),
+            sizeButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            sizeButton.widthAnchor.constraint(equalToConstant: 24),
+            sizeButton.heightAnchor.constraint(equalToConstant: 24),
 
             closeButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -4),
             closeButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
@@ -272,6 +311,11 @@ final class VirtualTrackpad: UIView {
         pan.maximumNumberOfTouches = 1
         pan.cancelsTouchesInView = false
         surface.addGestureRecognizer(pan)
+
+        let headerPan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
+        headerPan.maximumNumberOfTouches = 1
+        headerPan.cancelsTouchesInView = false
+        header.addGestureRecognizer(headerPan)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         surface.addGestureRecognizer(tap)
@@ -326,12 +370,44 @@ final class VirtualTrackpad: UIView {
         fireClickAtPointer()
     }
 
+    @objc private func anchorTapped() {
+        isAnchored.toggle()
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    @objc private func sizeTapped() {
+        UISelectionFeedbackGenerator().selectionChanged()
+        onCycleSize?()
+    }
+
     @objc private func closeTapped() {
         // The host owns visibility (it added us to the view tree), so expose
-        // the "close" intent by hiding self. A parent VC can observe this or
-        // wire its own UI; for parity with the RN Close button we just go
-        // hidden, which matches the mounted-only-when-on RN pattern.
-        isHidden = true
+        // the "close" intent by calling back when possible.
+        if let onClose {
+            onClose()
+        } else {
+            isHidden = true
+        }
+    }
+
+    @objc private func handleHeaderPan(_ gr: UIPanGestureRecognizer) {
+        guard !isAnchored else { return }
+        switch gr.state {
+        case .began:
+            lastHeaderTranslation = .zero
+        case .changed:
+            let translation = gr.translation(in: self)
+            let delta = CGPoint(
+                x: translation.x - lastHeaderTranslation.x,
+                y: translation.y - lastHeaderTranslation.y
+            )
+            lastHeaderTranslation = translation
+            onMoveDelta?(delta)
+        case .ended, .cancelled, .failed:
+            lastHeaderTranslation = .zero
+        default:
+            break
+        }
     }
 
     private func fireClickAtPointer() {
@@ -366,6 +442,8 @@ final class VirtualTrackpad: UIView {
         header.setColors(start: p.titleGradientStart, end: p.titleGradientEnd)
         headerIcon.tintColor = p.primaryForeground
         headerLabel.textColor = p.primaryForeground
+        anchorButton.tintColor = p.primaryForeground
+        sizeButton.tintColor = p.primaryForeground
         closeButton.tintColor = p.primaryForeground
 
         surface.backgroundColor = p.muted
@@ -396,6 +474,18 @@ final class VirtualTrackpad: UIView {
             .foregroundColor: p.foreground
         ]))
         hideButton.configuration = hideCfg
+        refreshAnchorButton()
+    }
+
+    private func refreshAnchorButton() {
+        var cfg = anchorButton.configuration ?? UIButton.Configuration.plain()
+        cfg.image = UIImage(
+            systemName: isAnchored ? "pin.fill" : "pin",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        )
+        anchorButton.configuration = cfg
+        anchorButton.accessibilityLabel = isAnchored ? "Unanchor trackpad" : "Anchor trackpad"
+        headerLabel.text = isAnchored ? "Trackpad  anchored" : "Trackpad  drag header"
     }
 }
 

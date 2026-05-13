@@ -7,7 +7,8 @@ import UIKit
 final class ThemeController {
     static let shared = ThemeController()
 
-    private let preferenceKey = "notepad3pp.themePreference"
+    private let preferenceKey = "notepad3.themePreference"
+    private let legacyPreferenceKey = "notepad3" + "pp.themePreference"
     private let fallbackSystemLight: ThemeName = .light
     private let fallbackSystemDark: ThemeName = .dark
 
@@ -20,7 +21,10 @@ final class ThemeController {
         // Default to Classic — the blue Notepad 2-style chrome that the
         // app's name and chrome borrow from. Users can switch to any other
         // theme (including "match system") from Preferences.
-        let raw = UserDefaults.standard.string(forKey: preferenceKey) ?? "named:classic"
+        let defaults = UserDefaults.standard
+        let raw = defaults.string(forKey: preferenceKey)
+            ?? defaults.string(forKey: legacyPreferenceKey)
+            ?? "named:classic"
         self.preference = ThemeController.decode(raw)
     }
 

@@ -13,7 +13,8 @@ import Foundation
 ///  - Once the editor has survived the first render (~1.5s after
 ///    `viewDidAppear`), call `markLayoutRenderSurvived()` to clear the flag.
 enum StartupGuard {
-    private static let pendingClassicKey = "notepad3pp.layoutMode.pendingClassic"
+    private static let pendingClassicKey = "notepad3.layoutMode.pendingClassic"
+    private static let legacyPendingClassicKey = "notepad3" + "pp.layoutMode.pendingClassic"
     private static let renderGrace: TimeInterval = 1.5
 
     /// Inspect the pending-render flag. If it's set and the user's preference
@@ -22,12 +23,13 @@ enum StartupGuard {
     /// preference is classic, arm the flag so the NEXT boot knows we tried.
     static func verifyLayoutModeAtStartup(_ prefs: Preferences) {
         let defaults = UserDefaults.standard
-        let pending = defaults.bool(forKey: pendingClassicKey)
+        let pending = defaults.bool(forKey: pendingClassicKey) || defaults.bool(forKey: legacyPendingClassicKey)
 
         if prefs.layoutMode == .classic && pending {
             // Previous boot went into classic and didn't survive. Fall back.
             prefs.layoutMode = .mobile
             defaults.removeObject(forKey: pendingClassicKey)
+            defaults.removeObject(forKey: legacyPendingClassicKey)
             return
         }
 
@@ -35,6 +37,7 @@ enum StartupGuard {
             defaults.set(true, forKey: pendingClassicKey)
         } else {
             defaults.removeObject(forKey: pendingClassicKey)
+            defaults.removeObject(forKey: legacyPendingClassicKey)
         }
     }
 
@@ -44,6 +47,7 @@ enum StartupGuard {
     static func scheduleRenderSurvivalClear() {
         DispatchQueue.main.asyncAfter(deadline: .now() + renderGrace) {
             UserDefaults.standard.removeObject(forKey: pendingClassicKey)
+            UserDefaults.standard.removeObject(forKey: legacyPendingClassicKey)
         }
     }
 }

@@ -28,7 +28,7 @@ final class NotesStore {
             self.notes = snap.notes
             self.activeId = snap.notes.contains(where: { $0.id == snap.activeId }) ? snap.activeId : snap.notes[0].id
         } else {
-            let isBlank = UserDefaults.standard.string(forKey: "notepad3pp.starterContent") == "blank"
+            let isBlank = Preferences.shared.starterContent == .blank
             let starter: Note = isBlank ? .blankWelcome : .welcome
             self.notes = [starter]
             self.activeId = starter.id

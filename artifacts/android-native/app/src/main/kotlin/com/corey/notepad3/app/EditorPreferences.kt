@@ -221,7 +221,9 @@ class InMemoryEditorPreferences(
 
 class AndroidEditorPreferences(context: Context) : EditorPreferences {
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("notepad3pp", Context.MODE_PRIVATE)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val legacyPrefs: SharedPreferences =
+        context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _displayOptions = MutableStateFlow(decodeDisplayOptions())
     override val displayOptions: StateFlow<EditorDisplayOptions> = _displayOptions.asStateFlow()
@@ -253,22 +255,22 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
     private fun decodeDisplayOptions(): EditorDisplayOptions =
         EditorDisplayOptions(
             layoutMode = decodeLayoutMode(),
-            fontSizeSp = prefs.getInt(KEY_FONT_SIZE_SP, EditorDisplayOptions.DEFAULT_FONT_SIZE_SP)
+            fontSizeSp = intPreference(KEY_FONT_SIZE_SP, EditorDisplayOptions.DEFAULT_FONT_SIZE_SP)
                 .coerceIn(EditorDisplayOptions.MIN_FONT_SIZE_SP, EditorDisplayOptions.MAX_FONT_SIZE_SP),
-            wordWrap = prefs.getBoolean(KEY_WORD_WRAP, true),
-            lineNumbers = prefs.getBoolean(KEY_LINE_NUMBERS, true),
-            accessoryBar = prefs.getBoolean(KEY_ACCESSORY_BAR, true),
-            accessoryToolbarRows = prefs.getInt(
+            wordWrap = booleanPreference(KEY_WORD_WRAP, true),
+            lineNumbers = booleanPreference(KEY_LINE_NUMBERS, true),
+            accessoryBar = booleanPreference(KEY_ACCESSORY_BAR, true),
+            accessoryToolbarRows = intPreference(
                 KEY_ACCESSORY_TOOLBAR_ROWS,
                 EditorDisplayOptions.DEFAULT_ACCESSORY_TOOLBAR_ROWS,
             ).coerceIn(
                 EditorDisplayOptions.MIN_ACCESSORY_TOOLBAR_ROWS,
                 EditorDisplayOptions.MAX_ACCESSORY_TOOLBAR_ROWS,
             ),
-            accessoryToolbarButtonSize = prefs.getString(KEY_ACCESSORY_TOOLBAR_BUTTON_SIZE, null)
+            accessoryToolbarButtonSize = stringPreference(KEY_ACCESSORY_TOOLBAR_BUTTON_SIZE)
                 ?.let(AccessoryToolbarButtonSize::fromStorageName)
                 ?: AccessoryToolbarButtonSize.MEDIUM,
-            accessoryToolbarContentMode = prefs.getString(KEY_ACCESSORY_TOOLBAR_CONTENT_MODE, null)
+            accessoryToolbarContentMode = stringPreference(KEY_ACCESSORY_TOOLBAR_CONTENT_MODE)
                 ?.let(AccessoryToolbarContentMode::fromStorageName)
                 ?: AccessoryToolbarContentMode.ICON_AND_TEXT,
             staticAccessoryButtons = decodeStaticAccessoryButtons(),
@@ -279,7 +281,7 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
         )
 
     private fun decodeLayoutMode(): EditorLayoutMode =
-        prefs.getString(KEY_LAYOUT_MODE, null)
+        stringPreference(KEY_LAYOUT_MODE)
             ?.let(EditorLayoutMode::fromStorageName)
             ?: EditorLayoutMode.MOBILE
 
@@ -287,7 +289,7 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
         key: String,
         fallback: Set<AccessoryToolbarButton>,
     ): Set<AccessoryToolbarButton> =
-        prefs.getString(key, null)
+        stringPreference(key)
             ?.let(::decodeAccessoryButtonSet)
             ?: fallback
 
@@ -313,16 +315,32 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
     private fun encodeAccessoryButtons(buttons: Set<AccessoryToolbarButton>): String =
         buttons.joinToString(",") { it.storageName }
 
+    private fun stringPreference(key: String): String? =
+        prefs.getString(key, null) ?: legacyPrefs.getString(legacyKey(key), null)
+
+    private fun booleanPreference(key: String, defaultValue: Boolean): Boolean =
+        if (prefs.contains(key)) prefs.getBoolean(key, defaultValue)
+        else legacyPrefs.getBoolean(legacyKey(key), defaultValue)
+
+    private fun intPreference(key: String, defaultValue: Int): Int =
+        if (prefs.contains(key)) prefs.getInt(key, defaultValue)
+        else legacyPrefs.getInt(legacyKey(key), defaultValue)
+
+    private fun legacyKey(key: String): String =
+        key.replaceFirst(PREFS_NAME, LEGACY_PREFS_NAME)
+
     companion object {
-        private const val KEY_LAYOUT_MODE = "notepad3pp.layoutMode"
-        private const val KEY_FONT_SIZE_SP = "notepad3pp.fontSizeSp"
-        private const val KEY_WORD_WRAP = "notepad3pp.wordWrap"
-        private const val KEY_LINE_NUMBERS = "notepad3pp.lineNumbers"
-        private const val KEY_ACCESSORY_BAR = "notepad3pp.accessoryBar"
-        private const val KEY_ACCESSORY_TOOLBAR_ROWS = "notepad3pp.accessoryToolbarRows"
-        private const val KEY_ACCESSORY_TOOLBAR_BUTTON_SIZE = "notepad3pp.accessoryToolbarButtonSize"
-        private const val KEY_ACCESSORY_TOOLBAR_CONTENT_MODE = "notepad3pp.accessoryToolbarContentMode"
-        private const val KEY_STATIC_ACCESSORY_BUTTONS = "notepad3pp.staticAccessoryButtons"
-        private const val KEY_HIDDEN_ACCESSORY_BUTTONS = "notepad3pp.hiddenAccessoryButtons"
+        private const val PREFS_NAME = "notepad3"
+        private const val LEGACY_PREFS_NAME = "notepad3" + "pp"
+        private const val KEY_LAYOUT_MODE = "notepad3.layoutMode"
+        private const val KEY_FONT_SIZE_SP = "notepad3.fontSizeSp"
+        private const val KEY_WORD_WRAP = "notepad3.wordWrap"
+        private const val KEY_LINE_NUMBERS = "notepad3.lineNumbers"
+        private const val KEY_ACCESSORY_BAR = "notepad3.accessoryBar"
+        private const val KEY_ACCESSORY_TOOLBAR_ROWS = "notepad3.accessoryToolbarRows"
+        private const val KEY_ACCESSORY_TOOLBAR_BUTTON_SIZE = "notepad3.accessoryToolbarButtonSize"
+        private const val KEY_ACCESSORY_TOOLBAR_CONTENT_MODE = "notepad3.accessoryToolbarContentMode"
+        private const val KEY_STATIC_ACCESSORY_BUTTONS = "notepad3.staticAccessoryButtons"
+        private const val KEY_HIDDEN_ACCESSORY_BUTTONS = "notepad3.hiddenAccessoryButtons"
     }
 }

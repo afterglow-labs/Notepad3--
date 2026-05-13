@@ -28,7 +28,7 @@ struct Note: Codable, Identifiable, Equatable {
         id: "welcome",
         title: "scratchpad.txt",
         body: """
-        Welcome to Notepad 3++
+        Welcome to Notepad 3
 
         A fast iPhone text editor with the feel of classic desktop notepad utilities.
 
