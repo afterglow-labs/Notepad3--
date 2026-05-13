@@ -14,7 +14,8 @@ enum class AccessoryToolbarButton(val storageName: String, val displayTitle: Str
     SELECT_WORD("select_word", "Word"),
     SELECT_LINE("select_line", "Line"),
     SELECT_ALL("select_all", "All"),
-    UNDO_REDO("undo_redo", "Undo/Redo"),
+    UNDO("undo", "Undo"),
+    REDO("redo", "Redo"),
     READ_MODE("read_mode", "Read"),
     FIND("find", "Find"),
     INSERT_DATE("insert_date", "Date"),
@@ -40,10 +41,12 @@ enum class AccessoryToolbarButton(val storageName: String, val displayTitle: Str
         )
 
         fun fromStorageName(value: String): AccessoryToolbarButton? =
-            if (value == "undo" || value == "redo") {
-                UNDO_REDO
-            } else {
-                entries.firstOrNull { it.storageName == value }
+            entries.firstOrNull { it.storageName == value }
+
+        fun fromStorageNames(value: String): Set<AccessoryToolbarButton> =
+            when (value) {
+                "undo_redo" -> setOf(UNDO, REDO)
+                else -> fromStorageName(value)?.let(::setOf) ?: emptySet()
             }
     }
 }
@@ -124,10 +127,11 @@ data class EditorDisplayOptions(
             AccessoryToolbarButton.SHIFT,
             AccessoryToolbarButton.MOVE_UP,
             AccessoryToolbarButton.DELETE_BACKWARD,
-            AccessoryToolbarButton.UNDO_REDO,
+            AccessoryToolbarButton.UNDO,
             AccessoryToolbarButton.MOVE_LEFT,
             AccessoryToolbarButton.MOVE_DOWN,
             AccessoryToolbarButton.MOVE_RIGHT,
+            AccessoryToolbarButton.REDO,
         )
         val LEGACY_DEFAULT_STATIC_ACCESSORY_BUTTONS: Set<AccessoryToolbarButton> = setOf(
             AccessoryToolbarButton.SHIFT,
@@ -308,7 +312,7 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
     private fun decodeAccessoryButtonSet(raw: String): Set<AccessoryToolbarButton> {
         if (raw.isBlank()) return emptySet()
         return raw.split(",")
-            .mapNotNull { AccessoryToolbarButton.fromStorageName(it.trim()) }
+            .flatMap { AccessoryToolbarButton.fromStorageNames(it.trim()) }
             .toSet()
     }
 

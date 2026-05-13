@@ -10,8 +10,10 @@ import android.graphics.Typeface
 import android.os.Build
 import android.text.Editable
 import android.text.InputType
+import android.text.Spannable
 import android.text.TextWatcher
 import android.text.method.KeyListener
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.inputmethod.EditorInfo
@@ -29,6 +31,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -39,6 +42,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -82,7 +86,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -90,21 +93,20 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import com.corey.notepad3.editor.EditResult
 import com.corey.notepad3.editor.EditorCommands
 import com.corey.notepad3.editor.EditorGutter
 import com.corey.notepad3.editor.EditorHistory
 import com.corey.notepad3.editor.EditorStatus
+import com.corey.notepad3.editor.HighlightCategory
 import com.corey.notepad3.editor.LineDiff
 import com.corey.notepad3.editor.MarkdownBlock
 import com.corey.notepad3.editor.MarkdownPreview
 import com.corey.notepad3.editor.SearchOptions
+import com.corey.notepad3.editor.SyntaxHighlighter
 import com.corey.notepad3.editor.TextSelection
 import com.corey.notepad3.models.DocumentLanguage
 import com.corey.notepad3.models.TextDocument
@@ -164,6 +166,7 @@ fun NotepadApp(
     var showPreferences by rememberSaveable { mutableStateOf(false) }
     var preferencesDestination by rememberSaveable { mutableStateOf(PreferencesDestination.GENERAL) }
     var showTrackpad by rememberSaveable { mutableStateOf(false) }
+    var trackpadState by remember { mutableStateOf(VirtualTrackpadState()) }
     var shiftAnchor by rememberSaveable { mutableStateOf<Int?>(null) }
     var readMode by rememberSaveable { mutableStateOf(false) }
     var zenMode by rememberSaveable { mutableStateOf(false) }
@@ -412,6 +415,52 @@ fun NotepadApp(
             val nextLineStart = lineEnd + 1
             val nextLineEnd = body.indexOf('\n', nextLineStart).takeIf { it >= 0 } ?: body.length
             updateCursorSelection((nextLineStart + column).coerceAtMost(nextLineEnd))
+        }
+    }
+
+    fun moveCursorPage(direction: Int) {
+        val body = active.body
+        var caret = movingCursor().coerceIn(0, body.length)
+        repeat(10) {
+            val lineStart = body.lastIndexOf('\n', (caret - 1).coerceAtLeast(0)) + 1
+            val column = caret - lineStart
+            caret = if (direction < 0) {
+                if (lineStart == 0) {
+                    0
+                } else {
+                    val previousLineEnd = lineStart - 1
+                    val previousLineStart = body.lastIndexOf('\n', (previousLineEnd - 1).coerceAtLeast(0)) + 1
+                    (previousLineStart + column).coerceAtMost(previousLineEnd)
+                }
+            } else {
+                val lineEnd = body.indexOf('\n', caret)
+                if (lineEnd < 0) {
+                    body.length
+                } else {
+                    val nextLineStart = lineEnd + 1
+                    val nextLineEnd = body.indexOf('\n', nextLineStart).takeIf { it >= 0 } ?: body.length
+                    (nextLineStart + column).coerceAtMost(nextLineEnd)
+                }
+            }
+        }
+        updateCursorSelection(caret)
+    }
+
+    fun moveCursorHome() {
+        val caret = movingCursor().coerceIn(0, active.body.length)
+        val lineStart = active.body.lastIndexOf('\n', (caret - 1).coerceAtLeast(0)) + 1
+        updateCursorSelection(lineStart)
+    }
+
+    fun moveCursorEnd() {
+        val caret = movingCursor().coerceIn(0, active.body.length)
+        val lineEnd = active.body.indexOf('\n', caret).takeIf { it >= 0 } ?: active.body.length
+        updateCursorSelection(lineEnd)
+    }
+
+    fun insertPlainText(value: String) {
+        if (!readMode) {
+            commitEdit(EditorCommands.insertText(active.body, activeSelection, value))
         }
     }
 
@@ -735,11 +784,27 @@ fun NotepadApp(
                 if (showingMarkdownPreview) {
                     MarkdownPreviewPane(document = active, palette = palette, modifier = Modifier.weight(1f))
                 } else {
-                    Box(
+                    BoxWithConstraints(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
                     ) {
+                        val trackpadContainer = TrackpadBounds(maxWidth.value, maxHeight.value)
+                        LaunchedEffect(showTrackpad, trackpadContainer.width, trackpadContainer.height) {
+                            if (
+                                showTrackpad &&
+                                trackpadState.position == TrackpadPoint(0f, 0f) &&
+                                trackpadState.pointerPosition == TrackpadPoint(0f, 0f)
+                            ) {
+                                trackpadState = trackpadState.copy(
+                                    position = VirtualTrackpadState.defaultPosition(trackpadContainer),
+                                    pointerPosition = TrackpadPoint(
+                                        x = trackpadContainer.width / 2f,
+                                        y = trackpadContainer.height / 2f,
+                                    ),
+                                ).clampedTo(trackpadContainer)
+                            }
+                        }
                         EditorTextArea(
                             document = active,
                             palette = palette,
@@ -777,16 +842,33 @@ fun NotepadApp(
                             }
                         }
                         if (layoutMode == EditorLayoutMode.MOBILE && showTrackpad) {
-                            TrackpadPanel(
+                            EnhancedTrackpadPanel(
+                                state = trackpadState,
+                                containerBounds = trackpadContainer,
+                                pointerBounds = trackpadContainer,
                                 palette = palette,
-                                onMoveLeft = { moveCursorBy(-1) },
-                                onMoveUp = { moveCursorVertical(-1) },
-                                onMoveDown = { moveCursorVertical(1) },
-                                onMoveRight = { moveCursorBy(1) },
-                                onHide = { showTrackpad = false },
+                                onStateChange = { trackpadState = it.clampedTo(trackpadContainer) },
+                                onPointerDelta = { delta ->
+                                    if (kotlin.math.abs(delta.dx) > kotlin.math.abs(delta.dy)) {
+                                        if (kotlin.math.abs(delta.dx) >= 6f) {
+                                            moveCursorBy(if (delta.dx > 0) 1 else -1)
+                                        }
+                                    } else if (kotlin.math.abs(delta.dy) >= 6f) {
+                                        moveCursorVertical(if (delta.dy > 0) 1 else -1)
+                                    }
+                                },
+                                onMoveCaret = { direction ->
+                                    when (direction) {
+                                        TrackpadDirection.LEFT -> moveCursorBy(-1)
+                                        TrackpadDirection.UP -> moveCursorVertical(-1)
+                                        TrackpadDirection.DOWN -> moveCursorVertical(1)
+                                        TrackpadDirection.RIGHT -> moveCursorBy(1)
+                                    }
+                                },
+                                onClose = { showTrackpad = false },
                                 modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(16.dp),
+                                    .align(Alignment.TopStart)
+                                    .offset(trackpadState.position.x.dp, trackpadState.position.y.dp),
                             )
                         }
                     }
@@ -822,6 +904,13 @@ fun NotepadApp(
                             onMoveUp = { moveCursorVertical(-1) },
                             onMoveDown = { moveCursorVertical(1) },
                             onMoveRight = { moveCursorBy(1) },
+                            onPageUp = { moveCursorPage(-1) },
+                            onPageDown = { moveCursorPage(1) },
+                            onHome = ::moveCursorHome,
+                            onEnd = ::moveCursorEnd,
+                            onTab = { insertPlainText("\t") },
+                            onEnter = { insertPlainText("\n") },
+                            onInsertText = ::insertPlainText,
                             onFind = ::toggleFindPanel,
                             onInsertDateTime = ::insertDateTime,
                             onOpenDocuments = ::toggleDocumentsPanel,
@@ -829,6 +918,11 @@ fun NotepadApp(
                             onSelectWord = ::selectWord,
                             onSelectLine = ::selectLine,
                             onCompare = ::toggleComparePanel,
+                            onDuplicateLine = ::duplicateLine,
+                            onDeleteLine = ::deleteLine,
+                            onSortLines = ::sortDocument,
+                            onTrimSpaces = ::trimSelection,
+                            onGotoLine = ::startGotoLine,
                             onMore = ::toggleMorePanel,
                         )
                         Spacer(Modifier.height(2.dp))
@@ -3240,6 +3334,9 @@ private class EditorEditText(context: android.content.Context) : EditText(contex
     private var textPaddingBottomPx = 18
     private var gutterSidePaddingPx = 10
     private var bodySnapshot = ""
+    var syntaxHighlightBodySnapshot: String = ""
+    var syntaxHighlightLanguage: DocumentLanguage? = null
+    var syntaxHighlightPaletteKey: String = ""
 
     init {
         gutterReady = true
@@ -3413,6 +3510,7 @@ private fun EditorTextArea(
                 setEditorContentPadding(18, 18, 18, 18)
                 configureGutter(palette, showLineNumbers)
                 setText(document.body)
+                applySyntaxHighlighting(document.language, palette)
                 addTextChangedListener(object : TextWatcher {
                     private var pendingSelection: TextSelection? = null
 
@@ -3471,6 +3569,7 @@ private fun EditorTextArea(
             if (bodyChangedExternally) {
                 editText.setText(document.body)
             }
+            editText.applySyntaxHighlighting(document.language, palette)
             if (
                 editText.selectionStart != safeSelection.start ||
                 editText.selectionEnd != safeSelection.end
@@ -3480,6 +3579,45 @@ private fun EditorTextArea(
         },
     )
 }
+
+private fun EditorEditText.applySyntaxHighlighting(language: DocumentLanguage, palette: Palette) {
+    val editable = text ?: return
+    val body = editable.toString()
+    val paletteKey = syntaxHighlightPaletteKey(palette)
+    if (
+        body == syntaxHighlightBodySnapshot &&
+        language == syntaxHighlightLanguage &&
+        paletteKey == syntaxHighlightPaletteKey
+    ) {
+        return
+    }
+
+    val spans = editable.getSpans(0, editable.length, ForegroundColorSpan::class.java)
+    spans.forEach { editable.removeSpan(it) }
+
+    SyntaxHighlighter.plan(body, language).forEach { range ->
+        editable.setSpan(
+            ForegroundColorSpan(syntaxHighlightColor(range.category, palette)),
+            range.start,
+            range.end,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+    }
+    syntaxHighlightBodySnapshot = body
+    syntaxHighlightLanguage = language
+    syntaxHighlightPaletteKey = paletteKey
+}
+
+private fun syntaxHighlightPaletteKey(palette: Palette): String =
+    listOf(palette.primary, palette.mutedForeground, palette.success, palette.accent).joinToString("|")
+
+private fun syntaxHighlightColor(category: HighlightCategory, palette: Palette): Int =
+    when (category) {
+        HighlightCategory.KEYWORD -> palette.primary
+        HighlightCategory.COMMENT -> palette.mutedForeground
+        HighlightCategory.STRING -> palette.success
+        HighlightCategory.NUMBER -> palette.accent
+    }.toColor().toArgb()
 
 @Composable
 private fun StatusBar(document: TextDocument, selection: TextSelection, readOnly: Boolean, palette: Palette) {
@@ -3538,51 +3676,6 @@ private fun MobileBottomBar(
 }
 
 @Composable
-private fun TrackpadPanel(
-    palette: Palette,
-    onMoveLeft: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onMoveRight: () -> Unit,
-    onHide: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        color = palette.card.toColor(),
-        border = BorderStroke(1.dp, palette.primary.toColor()),
-        shape = RoundedCornerShape(palette.radius.dp),
-        modifier = modifier.widthIn(min = 220.dp, max = 280.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Trackpad",
-                    color = palette.foreground.toColor(),
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onHide, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Filled.Close, contentDescription = "Hide trackpad", tint = palette.foreground.toColor())
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                Spacer(Modifier.weight(1f))
-                CommandButton(text = "^", palette = palette, modifier = Modifier.weight(1f), onClick = onMoveUp)
-                Spacer(Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                CommandButton(text = "<", palette = palette, modifier = Modifier.weight(1f), onClick = onMoveLeft)
-                CommandButton(text = "v", palette = palette, modifier = Modifier.weight(1f), onClick = onMoveDown)
-                CommandButton(text = ">", palette = palette, modifier = Modifier.weight(1f), onClick = onMoveRight)
-            }
-        }
-    }
-}
-
-@Composable
 private fun MobileKeyboardAccessory(
     palette: Palette,
     displayOptions: EditorDisplayOptions,
@@ -3609,6 +3702,13 @@ private fun MobileKeyboardAccessory(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onMoveRight: () -> Unit,
+    onPageUp: () -> Unit,
+    onPageDown: () -> Unit,
+    onHome: () -> Unit,
+    onEnd: () -> Unit,
+    onTab: () -> Unit,
+    onEnter: () -> Unit,
+    onInsertText: (String) -> Unit,
     onFind: () -> Unit,
     onInsertDateTime: () -> Unit,
     onOpenDocuments: () -> Unit,
@@ -3616,6 +3716,11 @@ private fun MobileKeyboardAccessory(
     onSelectWord: () -> Unit,
     onSelectLine: () -> Unit,
     onCompare: () -> Unit,
+    onDuplicateLine: () -> Unit,
+    onDeleteLine: () -> Unit,
+    onSortLines: () -> Unit,
+    onTrimSpaces: () -> Unit,
+    onGotoLine: () -> Unit,
     onMore: () -> Unit,
 ) {
     val toolbarRows = displayOptions.accessoryToolbarRows
@@ -3625,6 +3730,77 @@ private fun MobileKeyboardAccessory(
         keyboardSuppressed = keyboardSuppressed,
         readOnly = readOnly,
     )
+    val deck = remember { bonusKeyboardDeck() }
+    var bonusKeysVisible by rememberSaveable { mutableStateOf(false) }
+    var bonusPageIndex by rememberSaveable { mutableStateOf(0) }
+
+    fun runBonusAction(key: BonusKeyboardKey) {
+        when (key.action) {
+            BonusKeyboardAction.SELECT_WORD -> onSelectWord()
+            BonusKeyboardAction.SELECT_LINE -> onSelectLine()
+            BonusKeyboardAction.SELECT_ALL -> onSelectAll()
+            BonusKeyboardAction.PAGE_UP -> onPageUp()
+            BonusKeyboardAction.PAGE_DOWN -> onPageDown()
+            BonusKeyboardAction.HOME -> onHome()
+            BonusKeyboardAction.END -> onEnd()
+            BonusKeyboardAction.TAB -> onTab()
+            BonusKeyboardAction.UNDO -> onUndo()
+            BonusKeyboardAction.REDO -> onRedo()
+            BonusKeyboardAction.ARROW_UP -> onMoveUp()
+            BonusKeyboardAction.ARROW_LEFT -> onMoveLeft()
+            BonusKeyboardAction.ARROW_DOWN -> onMoveDown()
+            BonusKeyboardAction.ARROW_RIGHT -> onMoveRight()
+            BonusKeyboardAction.FIND -> onFind()
+            BonusKeyboardAction.MORE -> onMore()
+            BonusKeyboardAction.INSERT_TEXT -> key.insertText?.let(onInsertText)
+            BonusKeyboardAction.DUPLICATE_LINE -> onDuplicateLine()
+            BonusKeyboardAction.DELETE_LINE -> onDeleteLine()
+            BonusKeyboardAction.SORT_LINES -> onSortLines()
+            BonusKeyboardAction.TRIM_SPACES -> onTrimSpaces()
+            BonusKeyboardAction.GOTO_LINE -> onGotoLine()
+            BonusKeyboardAction.OPEN_DOCUMENTS -> onOpenDocuments()
+            BonusKeyboardAction.COMPARE -> onCompare()
+            BonusKeyboardAction.INSERT_DATE -> onInsertDateTime()
+            BonusKeyboardAction.TOGGLE_SHIFT -> onShiftToggle()
+            BonusKeyboardAction.TOGGLE_READ_MODE -> onReadToggle()
+            BonusKeyboardAction.HIDE_BONUS_KEYBOARD -> bonusKeysVisible = false
+            BonusKeyboardAction.DELETE_BACKWARD -> onDeleteBackward()
+            BonusKeyboardAction.ENTER -> onEnter()
+        }
+    }
+
+    fun bonusKeyEnabled(key: BonusKeyboardKey): Boolean =
+        when (key.action) {
+            BonusKeyboardAction.UNDO -> canUndo
+            BonusKeyboardAction.REDO -> canRedo
+            BonusKeyboardAction.COMPARE -> compareEnabled
+            BonusKeyboardAction.INSERT_TEXT,
+            BonusKeyboardAction.TAB,
+            BonusKeyboardAction.ENTER,
+            BonusKeyboardAction.DELETE_BACKWARD,
+            BonusKeyboardAction.DUPLICATE_LINE,
+            BonusKeyboardAction.DELETE_LINE,
+            BonusKeyboardAction.SORT_LINES,
+            BonusKeyboardAction.TRIM_SPACES,
+            BonusKeyboardAction.INSERT_DATE,
+            -> !readOnly
+            else -> true
+        }
+
+    if (bonusKeysVisible) {
+        BonusKeyboardDeckPanel(
+            deck = deck,
+            pageIndex = bonusPageIndex,
+            buttonSize = buttonSize,
+            palette = palette,
+            keyEnabled = ::bonusKeyEnabled,
+            onKey = ::runBonusAction,
+            onPageAdvance = { bonusPageIndex = (bonusPageIndex + 1) % deck.pages.size },
+            onKeyboardReturn = { bonusKeysVisible = false },
+        )
+        return
+    }
+
     val allActions = listOf(
         AccessoryToolbarAction(AccessoryToolbarButton.SHIFT, label = "Shift", active = shiftActive, onClick = onShiftToggle),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_UP, Icons.Filled.KeyboardArrowUp, "Up", onClick = onMoveUp),
@@ -3636,15 +3812,18 @@ private fun MobileKeyboardAccessory(
             onClick = onDeleteBackward,
         ),
         AccessoryToolbarAction(
-            AccessoryToolbarButton.UNDO_REDO,
-            Icons.Filled.Sync,
-            "Undo/Redo",
-            enabled = canUndo || canRedo,
-            menuItems = listOf(
-                AccessoryToolbarMenuItem("Undo", Icons.AutoMirrored.Filled.Undo, enabled = canUndo, onClick = onUndo),
-                AccessoryToolbarMenuItem("Redo", Icons.AutoMirrored.Filled.Redo, enabled = canRedo, onClick = onRedo),
-            ),
-            onClick = {},
+            AccessoryToolbarButton.UNDO,
+            Icons.AutoMirrored.Filled.Undo,
+            "Undo",
+            enabled = canUndo,
+            onClick = onUndo,
+        ),
+        AccessoryToolbarAction(
+            AccessoryToolbarButton.REDO,
+            Icons.AutoMirrored.Filled.Redo,
+            "Redo",
+            enabled = canRedo,
+            onClick = onRedo,
         ),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_LEFT, Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", onClick = onMoveLeft),
         AccessoryToolbarAction(AccessoryToolbarButton.MOVE_DOWN, Icons.Filled.KeyboardArrowDown, "Down", onClick = onMoveDown),
@@ -3749,6 +3928,235 @@ private fun MobileKeyboardAccessory(
                 }
             }
         }
+        Spacer(
+            Modifier
+                .fillMaxHeight()
+                .width(1.dp)
+                .background(palette.border.toColor()),
+        )
+        AccessoryModeSwitchButton(
+            label = "Keys",
+            icon = Icons.AutoMirrored.Filled.CompareArrows,
+            palette = palette,
+            active = false,
+            onClick = { bonusKeysVisible = true },
+        )
+    }
+}
+
+@Composable
+private fun BonusKeyboardDeckPanel(
+    deck: BonusKeyboardDeck,
+    pageIndex: Int,
+    buttonSize: AccessoryToolbarButtonSize,
+    palette: Palette,
+    keyEnabled: (BonusKeyboardKey) -> Boolean,
+    onKey: (BonusKeyboardKey) -> Unit,
+    onPageAdvance: () -> Unit,
+    onKeyboardReturn: () -> Unit,
+) {
+    val safePageIndex = pageIndex.coerceIn(0, deck.pages.lastIndex)
+    val page = deck.pages[safePageIndex]
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height((buttonSize.rowHeightDp * 5 + 24).dp)
+            .background(palette.card.toColor())
+            .border(1.dp, palette.border.toColor())
+            .padding(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(buttonSize.rowHeightDp.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            AccessoryModeSwitchButton(
+                label = "Kbd",
+                icon = Icons.Filled.Keyboard,
+                palette = palette,
+                active = true,
+                onClick = onKeyboardReturn,
+            )
+            Spacer(Modifier.weight(1f))
+            CommandButton(
+                text = page.indexLabel,
+                palette = palette,
+                modifier = Modifier
+                    .width(64.dp)
+                    .fillMaxHeight(),
+                onClick = onPageAdvance,
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                page.rows.forEach { row ->
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        row.forEach { key ->
+                            BonusKeyboardKeyButton(
+                                key = key,
+                                buttonSize = buttonSize,
+                                palette = palette,
+                                enabled = keyEnabled(key),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                onClick = { onKey(key) },
+                            )
+                        }
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .width(64.dp)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                deck.sideKeys.forEach { key ->
+                    BonusKeyboardKeyButton(
+                        key = key,
+                        buttonSize = buttonSize,
+                        palette = palette,
+                        enabled = keyEnabled(key),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        onClick = { onKey(key) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BonusKeyboardKeyButton(
+    key: BonusKeyboardKey,
+    buttonSize: AccessoryToolbarButtonSize,
+    palette: Palette,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val color = if (enabled) palette.foreground.toColor() else palette.mutedForeground.toColor().copy(alpha = 0.42f)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val latestOnClick = rememberUpdatedState(onClick)
+    if (key.repeatable) {
+        LaunchedEffect(isPressed, enabled) {
+            if (isPressed && enabled) {
+                latestOnClick.value()
+                delay(accessoryRepeatPressSpec.initialDelayMillis)
+                var iteration = 0
+                while (true) {
+                    latestOnClick.value()
+                    delay(repeatDelayForIteration(iteration))
+                    iteration += 1
+                }
+            }
+        }
+    }
+    val pressModifier = if (key.repeatable) {
+        Modifier.clickable(
+            enabled = enabled,
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = {},
+        )
+    } else {
+        Modifier.clickable(enabled = enabled, onClick = onClick)
+    }
+    val icon = bonusKeyboardIcon(key.action)
+    Box(
+        modifier = modifier
+            .background(
+                if (isPressed) palette.muted.toColor() else palette.editorBackground.toColor(),
+                RoundedCornerShape(5.dp),
+            )
+            .border(1.dp, palette.border.toColor(), RoundedCornerShape(5.dp))
+            .then(pressModifier)
+            .padding(horizontal = 3.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (key.contentMode == BonusKeyboardContentMode.TEXT_ONLY || icon == null) {
+            Text(
+                text = key.label,
+                color = color,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontSize = (buttonSize.labelSp + 8).sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false,
+            )
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(icon, contentDescription = key.label, tint = color, modifier = Modifier.size(buttonSize.iconDp.dp))
+                Text(
+                    text = key.label,
+                    color = color,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = buttonSize.labelSp.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    softWrap = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccessoryModeSwitchButton(
+    label: String,
+    icon: ImageVector,
+    palette: Palette,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    val color = if (active) palette.primary.toColor() else palette.foreground.toColor()
+    Column(
+        modifier = Modifier
+            .width(58.dp)
+            .fillMaxHeight()
+            .background(if (active) palette.muted.toColor() else Color.Transparent, RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(19.dp))
+        Text(
+            text = label,
+            color = color,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.SemiBold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -3758,14 +4166,6 @@ private data class AccessoryToolbarAction(
     val label: String = id.displayTitle,
     val enabled: Boolean = true,
     val active: Boolean = false,
-    val menuItems: List<AccessoryToolbarMenuItem> = emptyList(),
-    val onClick: () -> Unit,
-)
-
-private data class AccessoryToolbarMenuItem(
-    val label: String,
-    val icon: ImageVector,
-    val enabled: Boolean,
     val onClick: () -> Unit,
 )
 
@@ -3856,12 +4256,9 @@ private fun AccessoryToolbarActionButton(
         action.active -> palette.primary.toColor()
         else -> palette.foreground.toColor()
     }
-    var menuExpanded by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val latestOnClick = rememberUpdatedState(action.onClick)
-    val density = LocalDensity.current
-    val flyoutOffset = with(density) { -((buttonSize.rowHeightDp + 14).dp.roundToPx()) }
     val repeats = action.id.repeatsOnHold
     if (repeats) {
         LaunchedEffect(isPressed, action.enabled) {
@@ -3886,11 +4283,7 @@ private fun AccessoryToolbarActionButton(
         )
     } else {
         Modifier.clickable(enabled = action.enabled) {
-            if (action.menuItems.isNotEmpty()) {
-                menuExpanded = true
-            } else {
-                action.onClick()
-            }
+            action.onClick()
         }
     }
     val showIcon = action.icon != null && contentMode != AccessoryToolbarContentMode.TEXT_ONLY
@@ -3942,68 +4335,6 @@ private fun AccessoryToolbarActionButton(
                 softWrap = false,
                 modifier = Modifier.padding(horizontal = 5.dp),
             )
-        }
-        if (action.menuItems.isNotEmpty() && menuExpanded) {
-            Popup(
-                alignment = Alignment.TopCenter,
-                offset = IntOffset(0, flyoutOffset),
-                onDismissRequest = { menuExpanded = false },
-                properties = PopupProperties(focusable = true),
-            ) {
-                UndoRedoFlyout(
-                    items = action.menuItems,
-                    buttonSize = buttonSize,
-                    palette = palette,
-                    onDismiss = { menuExpanded = false },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun UndoRedoFlyout(
-    items: List<AccessoryToolbarMenuItem>,
-    buttonSize: AccessoryToolbarButtonSize,
-    palette: Palette,
-    onDismiss: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .background(palette.card.toColor(), RoundedCornerShape(8.dp))
-            .border(1.dp, palette.border.toColor(), RoundedCornerShape(8.dp))
-            .padding(5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        items.forEach { item ->
-            val color = if (item.enabled) palette.foreground.toColor() else palette.mutedForeground.toColor()
-            Column(
-                modifier = Modifier
-                    .width(54.dp)
-                    .height((buttonSize.rowHeightDp + 2).dp)
-                    .background(Color.Transparent, RoundedCornerShape(4.dp))
-                    .clickable(enabled = item.enabled) {
-                        onDismiss()
-                        item.onClick()
-                    }
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(item.icon, contentDescription = item.label, tint = color, modifier = Modifier.size(buttonSize.iconDp.dp))
-                Text(
-                    text = item.label,
-                    color = color,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = buttonSize.labelSp.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    softWrap = false,
-                )
-            }
         }
     }
 }
@@ -4256,7 +4587,8 @@ private val AccessoryToolbarButton.preferenceIcon: ImageVector
         AccessoryToolbarButton.SELECT_WORD -> Icons.AutoMirrored.Filled.ShortText
         AccessoryToolbarButton.SELECT_LINE -> Icons.AutoMirrored.Filled.Subject
         AccessoryToolbarButton.SELECT_ALL -> Icons.Filled.SelectAll
-        AccessoryToolbarButton.UNDO_REDO -> Icons.Filled.Sync
+        AccessoryToolbarButton.UNDO -> Icons.AutoMirrored.Filled.Undo
+        AccessoryToolbarButton.REDO -> Icons.AutoMirrored.Filled.Redo
         AccessoryToolbarButton.READ_MODE -> Icons.Filled.Visibility
         AccessoryToolbarButton.FIND -> Icons.Filled.Search
         AccessoryToolbarButton.INSERT_DATE -> Icons.Filled.AccessTime
@@ -4269,6 +4601,40 @@ private val AccessoryToolbarButton.preferenceIcon: ImageVector
         AccessoryToolbarButton.MOVE_LEFT -> Icons.AutoMirrored.Filled.KeyboardArrowLeft
         AccessoryToolbarButton.MOVE_DOWN -> Icons.Filled.KeyboardArrowDown
         AccessoryToolbarButton.MOVE_RIGHT -> Icons.AutoMirrored.Filled.KeyboardArrowRight
+    }
+
+private fun bonusKeyboardIcon(action: BonusKeyboardAction): ImageVector? =
+    when (action) {
+        BonusKeyboardAction.SELECT_WORD -> Icons.AutoMirrored.Filled.ShortText
+        BonusKeyboardAction.SELECT_LINE -> Icons.AutoMirrored.Filled.Subject
+        BonusKeyboardAction.SELECT_ALL -> Icons.Filled.SelectAll
+        BonusKeyboardAction.PAGE_UP -> Icons.Filled.KeyboardDoubleArrowUp
+        BonusKeyboardAction.PAGE_DOWN -> Icons.Filled.KeyboardDoubleArrowDown
+        BonusKeyboardAction.HOME -> Icons.Filled.Home
+        BonusKeyboardAction.END -> Icons.Filled.VerticalAlignBottom
+        BonusKeyboardAction.TAB -> Icons.AutoMirrored.Filled.KeyboardTab
+        BonusKeyboardAction.UNDO -> Icons.AutoMirrored.Filled.Undo
+        BonusKeyboardAction.REDO -> Icons.AutoMirrored.Filled.Redo
+        BonusKeyboardAction.ARROW_UP -> Icons.Filled.KeyboardArrowUp
+        BonusKeyboardAction.ARROW_LEFT -> Icons.AutoMirrored.Filled.KeyboardArrowLeft
+        BonusKeyboardAction.ARROW_DOWN -> Icons.Filled.KeyboardArrowDown
+        BonusKeyboardAction.ARROW_RIGHT -> Icons.AutoMirrored.Filled.KeyboardArrowRight
+        BonusKeyboardAction.FIND -> Icons.Filled.Search
+        BonusKeyboardAction.MORE -> Icons.Filled.MoreHoriz
+        BonusKeyboardAction.INSERT_TEXT -> null
+        BonusKeyboardAction.DUPLICATE_LINE -> Icons.Filled.AddBox
+        BonusKeyboardAction.DELETE_LINE -> Icons.Filled.IndeterminateCheckBox
+        BonusKeyboardAction.SORT_LINES -> Icons.Filled.SortByAlpha
+        BonusKeyboardAction.TRIM_SPACES -> Icons.Filled.ContentCut
+        BonusKeyboardAction.GOTO_LINE -> Icons.AutoMirrored.Filled.KeyboardTab
+        BonusKeyboardAction.OPEN_DOCUMENTS -> Icons.Filled.FolderOpen
+        BonusKeyboardAction.COMPARE -> Icons.Filled.ViewColumn
+        BonusKeyboardAction.INSERT_DATE -> Icons.Filled.AccessTime
+        BonusKeyboardAction.TOGGLE_SHIFT -> Icons.Filled.Keyboard
+        BonusKeyboardAction.TOGGLE_READ_MODE -> Icons.Filled.Visibility
+        BonusKeyboardAction.HIDE_BONUS_KEYBOARD -> Icons.Filled.Keyboard
+        BonusKeyboardAction.DELETE_BACKWARD -> Icons.AutoMirrored.Filled.Backspace
+        BonusKeyboardAction.ENTER -> Icons.AutoMirrored.Filled.KeyboardReturn
     }
 
 private fun Context.hideSoftKeyboard() {
