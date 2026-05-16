@@ -1,0 +1,225 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+  <defs>
+    <linearGradient id="classicTitle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f6faf"/>
+      <stop offset="0.55" stop-color="#1f5f9e"/>
+      <stop offset="1" stop-color="#174d86"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#17212b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .label { font-family: Segoe UI, Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #1f2937; }
+      .sub { font-family: Segoe UI, Arial, sans-serif; font-size: 13px; fill: #64748b; }
+      .ui { font-family: Segoe UI, Arial, sans-serif; }
+      .mono { font-family: Consolas, "Courier New", monospace; }
+      .keyText { font-family: Segoe UI, Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #f8fafc; text-anchor: middle; dominant-baseline: middle; }
+      .keyTextSmall { font-family: Segoe UI, Arial, sans-serif; font-size: 15px; font-weight: 700; fill: #f8fafc; text-anchor: middle; dominant-baseline: middle; }
+      .arrowIcon { fill: none; stroke: #f8fafc; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+      .dimKey { fill: #3a3a3a; stroke: #4a4a4a; stroke-width: 2; }
+      .blackKey { fill: #101010; stroke: #2d2d2d; stroke-width: 2; }
+      .railKey { fill: #363636; stroke: #4a4a4a; stroke-width: 2; }
+      .phone { fill: #ffffff; stroke: #a9b4c1; stroke-width: 2; }
+      .chrome { fill: #e7f3fb; stroke: #9bb1c9; stroke-width: 1; }
+      .editor { fill: #fffafd; stroke: #b8c8da; stroke-width: 1.5; }
+      .gutter { fill: #eaf5fd; }
+      .status { fill: #e9f5fd; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="900" fill="#eef3f8"/>
+  <text x="48" y="48" class="label">Notepad 3 Android keyboard replacement concept</text>
+  <text x="48" y="72" class="sub">Normal typing keeps the Android IME. Special pages hide it and put an app-owned deck in the same bottom footprint. Swipe left/right or tap page dots to change pages.</text>
+
+  <!-- Panel 1 -->
+  <g transform="translate(48,105)" filter="url(#softShadow)">
+    <text x="0" y="-18" class="label">1. Normal typing</text>
+    <text x="0" y="4" class="sub">Real keyboard remains visible. App strip sits above it.</text>
+    <rect class="phone" x="0" y="20" width="400" height="750" rx="28"/>
+    <rect x="1" y="20" width="398" height="38" rx="24" fill="#f8fafc"/>
+    <text x="30" y="45" class="ui" font-size="17" font-weight="700" fill="#111827">12:16</text>
+    <circle cx="345" cy="40" r="9" fill="#111827"/>
+    <rect x="362" y="31" width="24" height="18" rx="6" fill="#111827"/>
+    <rect x="16" y="58" width="368" height="26" fill="url(#classicTitle)"/>
+    <text x="26" y="77" class="ui" font-size="14" font-weight="700" fill="#fff">scratchpad.txt - Notepad 3</text>
+    <rect x="16" y="84" width="368" height="34" class="chrome"/>
+    <text x="28" y="108" class="ui" font-size="16" fill="#1f2937">File</text>
+    <text x="78" y="108" class="ui" font-size="16" fill="#1f2937">Edit</text>
+    <text x="128" y="108" class="ui" font-size="16" fill="#1f2937">Search</text>
+    <text x="198" y="108" class="ui" font-size="16" fill="#1f2937">View</text>
+    <text x="252" y="108" class="ui" font-size="16" fill="#1f2937">Syntax</text>
+    <rect x="16" y="118" width="368" height="42" class="chrome"/>
+    <text x="36" y="146" class="ui" font-size="18" fill="#1f2937">▣</text>
+    <text x="84" y="146" class="ui" font-size="18" fill="#1f2937">□</text>
+    <text x="132" y="146" class="ui" font-size="18" fill="#1f2937">≡</text>
+    <text x="180" y="146" class="ui" font-size="18" fill="#1f2937">⌕</text>
+    <text x="228" y="146" class="ui" font-size="18" fill="#1f2937">↶</text>
+    <text x="276" y="146" class="ui" font-size="18" fill="#1f2937">↷</text>
+    <rect x="16" y="160" width="142" height="38" rx="8" fill="#2f65a7"/>
+    <text x="31" y="185" class="ui" font-size="16" font-weight="700" fill="#fff">scratchpad.txt</text>
+    <rect x="16" y="212" width="368" height="315" rx="10" class="editor"/>
+    <rect x="16" y="212" width="34" height="315" class="gutter"/>
+    <text x="32" y="246" class="mono" font-size="18" fill="#596579">1</text>
+    <text x="32" y="282" class="mono" font-size="18" fill="#596579">2</text>
+    <text x="32" y="318" class="mono" font-size="18" fill="#596579">3</text>
+    <text x="62" y="246" class="mono" font-size="20" fill="#1f2937">Welcome to Notepad 3</text>
+    <text x="62" y="300" class="mono" font-size="20" fill="#1f2937">Tap text to type normally.</text>
+    <rect x="16" y="527" width="368" height="34" class="status"/>
+    <text x="28" y="550" class="ui" font-size="15" fill="#475569">JSON | 12 lines | 354 chars | Ln 3, Col 48</text>
+    <rect x="16" y="561" width="368" height="48" fill="#3a3a3a"/>
+    <g transform="translate(24,569)">
+      <rect width="54" height="32" rx="10" class="railKey"/><text x="27" y="17" class="keyTextSmall">Tabs</text>
+      <rect x="61" width="54" height="32" rx="10" class="railKey"/><text x="88" y="17" class="keyTextSmall">esc</text>
+      <rect x="122" width="54" height="32" rx="10" class="railKey"/><text x="149" y="17" class="keyTextSmall">shift</text>
+      <rect x="183" width="54" height="32" rx="10" class="railKey"/><text x="210" y="17" class="keyTextSmall">ctrl</text>
+      <rect x="244" width="54" height="32" rx="10" class="railKey"/><text x="271" y="17" class="keyTextSmall">alt</text>
+      <rect x="305" width="54" height="32" rx="10" fill="#46546a" stroke="#5f6b7c" stroke-width="2"/><text x="332" y="17" class="keyTextSmall">Nav</text>
+    </g>
+    <rect x="16" y="609" width="368" height="135" fill="#575757"/>
+    <g transform="translate(26,620)">
+      <rect width="48" height="42" rx="10" fill="#6d6d6d"/><text x="24" y="28" class="keyText">q</text>
+      <rect x="58" width="48" height="42" rx="10" fill="#6d6d6d"/><text x="82" y="28" class="keyText">w</text>
+      <rect x="116" width="48" height="42" rx="10" fill="#6d6d6d"/><text x="140" y="28" class="keyText">e</text>
+      <rect x="174" width="48" height="42" rx="10" fill="#6d6d6d"/><text x="198" y="28" class="keyText">r</text>
+      <rect x="232" width="48" height="42" rx="10" fill="#6d6d6d"/><text x="256" y="28" class="keyText">t</text>
+      <rect x="290" width="48" height="42" rx="10" fill="#6d6d6d"/><text x="314" y="28" class="keyText">y</text>
+      <rect y="52" width="70" height="40" rx="10" fill="#6d6d6d"/><text x="35" y="78" class="keyText">123</text>
+      <rect x="82" y="52" width="170" height="40" rx="10" fill="#6d6d6d"/><text x="167" y="78" class="keyTextSmall">space</text>
+      <rect x="264" y="52" width="74" height="40" rx="10" fill="#6d6d6d"/><text x="301" y="78" class="keyText">↵</text>
+    </g>
+  </g>
+
+  <!-- Panel 2 -->
+  <g transform="translate(520,105)" filter="url(#softShadow)">
+    <text x="0" y="-18" class="label">2. Nav page replaces keyboard</text>
+    <text x="0" y="4" class="sub">IME is hidden. The app owns the keyboard-height area.</text>
+    <rect class="phone" x="0" y="20" width="400" height="750" rx="28"/>
+    <rect x="1" y="20" width="398" height="38" rx="24" fill="#f8fafc"/>
+    <text x="30" y="45" class="ui" font-size="17" font-weight="700" fill="#111827">12:17</text>
+    <circle cx="345" cy="40" r="9" fill="#111827"/>
+    <rect x="362" y="31" width="24" height="18" rx="6" fill="#111827"/>
+    <rect x="16" y="58" width="368" height="26" fill="url(#classicTitle)"/>
+    <text x="26" y="77" class="ui" font-size="14" font-weight="700" fill="#fff">scratchpad.txt - Notepad 3</text>
+    <rect x="16" y="84" width="368" height="34" class="chrome"/>
+    <text x="28" y="108" class="ui" font-size="16" fill="#1f2937">File</text>
+    <text x="78" y="108" class="ui" font-size="16" fill="#1f2937">Edit</text>
+    <text x="128" y="108" class="ui" font-size="16" fill="#1f2937">Search</text>
+    <text x="198" y="108" class="ui" font-size="16" fill="#1f2937">View</text>
+    <text x="252" y="108" class="ui" font-size="16" fill="#1f2937">Syntax</text>
+    <rect x="16" y="118" width="368" height="42" class="chrome"/>
+    <text x="36" y="146" class="ui" font-size="18" fill="#1f2937">▣</text>
+    <text x="84" y="146" class="ui" font-size="18" fill="#1f2937">□</text>
+    <text x="132" y="146" class="ui" font-size="18" fill="#1f2937">≡</text>
+    <text x="180" y="146" class="ui" font-size="18" fill="#1f2937">⌕</text>
+    <text x="228" y="146" class="ui" font-size="18" fill="#1f2937">↶</text>
+    <text x="276" y="146" class="ui" font-size="18" fill="#1f2937">↷</text>
+    <rect x="16" y="160" width="142" height="38" rx="8" fill="#2f65a7"/>
+    <text x="31" y="185" class="ui" font-size="16" font-weight="700" fill="#fff">scratchpad.txt</text>
+    <rect x="16" y="212" width="368" height="315" rx="10" class="editor"/>
+    <rect x="16" y="212" width="34" height="315" class="gutter"/>
+    <text x="32" y="246" class="mono" font-size="18" fill="#596579">1</text>
+    <text x="32" y="282" class="mono" font-size="18" fill="#596579">2</text>
+    <text x="32" y="318" class="mono" font-size="18" fill="#596579">3</text>
+    <text x="62" y="246" class="mono" font-size="20" fill="#1f2937">Cursor moves without keyboard.</text>
+    <text x="62" y="300" class="mono" font-size="20" fill="#1f2937">Swipe deck for numbers.</text>
+    <rect x="16" y="527" width="368" height="34" class="status"/>
+    <text x="28" y="550" class="ui" font-size="15" fill="#475569">JSON | 12 lines | 354 chars | Ln 3, Col 48</text>
+    <rect x="16" y="561" width="368" height="183" fill="#373737"/>
+    <g transform="translate(24,569)">
+      <rect width="54" height="32" rx="10" class="railKey"/><text x="27" y="17" class="keyTextSmall">ABC</text>
+      <rect x="61" width="54" height="32" rx="10" class="railKey"/><text x="88" y="17" class="keyTextSmall">esc</text>
+      <rect x="122" width="54" height="32" rx="10" class="railKey"/><text x="149" y="17" class="keyTextSmall">shift</text>
+      <rect x="183" width="54" height="32" rx="10" class="railKey"/><text x="210" y="17" class="keyTextSmall">ctrl</text>
+      <rect x="244" width="54" height="32" rx="10" class="railKey"/><text x="271" y="17" class="keyTextSmall">alt</text>
+      <rect x="305" width="54" height="32" rx="10" class="railKey"/><text x="332" y="17" class="keyTextSmall">enter</text>
+    </g>
+    <g transform="translate(24,611)">
+      <rect width="48" height="40" rx="12" class="railKey"/><text x="24" y="22" class="keyText">▣</text>
+      <rect y="48" width="48" height="40" rx="12" class="railKey"/><text x="24" y="70" class="keyText">✂</text>
+      <rect y="96" width="48" height="40" rx="12" class="railKey"/><text x="24" y="118" class="keyText">▤</text>
+      <rect y="144" width="48" height="40" rx="12" class="railKey"/><text x="24" y="166" class="keyTextSmall">•●•</text>
+      <rect x="66" width="80" height="40" rx="12" class="dimKey"/><text x="106" y="22" class="keyTextSmall">Home</text>
+      <rect x="156" width="80" height="40" rx="12" class="dimKey"/><path class="arrowIcon" d="M181 25 L196 11 L211 25"/>
+      <rect x="246" width="80" height="40" rx="12" class="dimKey"/><text x="286" y="22" class="keyTextSmall">Pg Up</text>
+      <rect x="66" y="48" width="80" height="40" rx="12" class="dimKey"/><text x="106" y="70" class="keyTextSmall">End</text>
+      <rect x="156" y="48" width="80" height="40" rx="12" class="dimKey"/><path class="arrowIcon" d="M181 64 L196 78 L211 64"/>
+      <rect x="246" y="48" width="80" height="40" rx="12" class="dimKey"/><text x="286" y="70" class="keyTextSmall">Pg Dn</text>
+      <rect x="66" y="96" width="80" height="40" rx="12" class="dimKey"/><path class="arrowIcon" d="M114 107 L100 118 L114 129"/>
+      <rect x="156" y="96" width="80" height="40" rx="12" class="dimKey"/><path class="arrowIcon" d="M188 107 L202 118 L188 129"/>
+      <rect x="246" y="96" width="80" height="40" rx="12" class="dimKey"/><text x="286" y="118" class="keyTextSmall">Tab</text>
+      <rect x="332" width="52" height="40" rx="12" class="railKey"/><text x="358" y="22" class="keyText">⌫</text>
+      <rect x="332" y="96" width="52" height="88" rx="12" class="railKey"/><text x="358" y="142" class="keyTextSmall">Enter</text>
+    </g>
+    <rect x="154" y="733" width="92" height="4" rx="3" fill="#9ca3af"/>
+  </g>
+
+  <!-- Panel 3 -->
+  <g transform="translate(992,105)" filter="url(#softShadow)">
+    <text x="0" y="-18" class="label">3. Numeric page replaces keyboard</text>
+    <text x="0" y="4" class="sub">Same footprint, swipe/page dots return to nav or normal typing.</text>
+    <rect class="phone" x="0" y="20" width="400" height="750" rx="28"/>
+    <rect x="1" y="20" width="398" height="38" rx="24" fill="#f8fafc"/>
+    <text x="30" y="45" class="ui" font-size="17" font-weight="700" fill="#111827">12:18</text>
+    <circle cx="345" cy="40" r="9" fill="#111827"/>
+    <rect x="362" y="31" width="24" height="18" rx="6" fill="#111827"/>
+    <rect x="16" y="58" width="368" height="26" fill="url(#classicTitle)"/>
+    <text x="26" y="77" class="ui" font-size="14" font-weight="700" fill="#fff">scratchpad.txt - Notepad 3</text>
+    <rect x="16" y="84" width="368" height="34" class="chrome"/>
+    <text x="28" y="108" class="ui" font-size="16" fill="#1f2937">File</text>
+    <text x="78" y="108" class="ui" font-size="16" fill="#1f2937">Edit</text>
+    <text x="128" y="108" class="ui" font-size="16" fill="#1f2937">Search</text>
+    <text x="198" y="108" class="ui" font-size="16" fill="#1f2937">View</text>
+    <text x="252" y="108" class="ui" font-size="16" fill="#1f2937">Syntax</text>
+    <rect x="16" y="118" width="368" height="42" class="chrome"/>
+    <text x="36" y="146" class="ui" font-size="18" fill="#1f2937">▣</text>
+    <text x="84" y="146" class="ui" font-size="18" fill="#1f2937">□</text>
+    <text x="132" y="146" class="ui" font-size="18" fill="#1f2937">≡</text>
+    <text x="180" y="146" class="ui" font-size="18" fill="#1f2937">⌕</text>
+    <text x="228" y="146" class="ui" font-size="18" fill="#1f2937">↶</text>
+    <text x="276" y="146" class="ui" font-size="18" fill="#1f2937">↷</text>
+    <rect x="16" y="160" width="142" height="38" rx="8" fill="#2f65a7"/>
+    <text x="31" y="185" class="ui" font-size="16" font-weight="700" fill="#fff">scratchpad.txt</text>
+    <rect x="16" y="212" width="368" height="315" rx="10" class="editor"/>
+    <rect x="16" y="212" width="34" height="315" class="gutter"/>
+    <text x="32" y="246" class="mono" font-size="18" fill="#596579">1</text>
+    <text x="32" y="282" class="mono" font-size="18" fill="#596579">2</text>
+    <text x="32" y="318" class="mono" font-size="18" fill="#596579">3</text>
+    <text x="62" y="246" class="mono" font-size="20" fill="#1f2937">Numbers insert without opening</text>
+    <text x="62" y="300" class="mono" font-size="20" fill="#1f2937">the system keyboard.</text>
+    <rect x="16" y="527" width="368" height="34" class="status"/>
+    <text x="28" y="550" class="ui" font-size="15" fill="#475569">JSON | 12 lines | 354 chars | Ln 3, Col 56</text>
+    <rect x="16" y="561" width="368" height="183" fill="#373737"/>
+    <g transform="translate(24,569)">
+      <rect width="54" height="32" rx="10" class="railKey"/><text x="27" y="17" class="keyTextSmall">ABC</text>
+      <rect x="61" width="54" height="32" rx="10" class="railKey"/><text x="88" y="17" class="keyTextSmall">esc</text>
+      <rect x="122" width="54" height="32" rx="10" class="railKey"/><text x="149" y="17" class="keyTextSmall">shift</text>
+      <rect x="183" width="54" height="32" rx="10" class="railKey"/><text x="210" y="17" class="keyTextSmall">ctrl</text>
+      <rect x="244" width="54" height="32" rx="10" class="railKey"/><text x="271" y="17" class="keyTextSmall">alt</text>
+      <rect x="305" width="54" height="32" rx="10" class="railKey"/><text x="332" y="17" class="keyTextSmall">enter</text>
+    </g>
+    <g transform="translate(24,611)">
+      <rect width="48" height="40" rx="12" class="railKey"/><text x="24" y="22" class="keyText">▣</text>
+      <rect y="48" width="48" height="40" rx="12" class="railKey"/><text x="24" y="70" class="keyText">✂</text>
+      <rect y="96" width="48" height="40" rx="12" class="railKey"/><text x="24" y="118" class="keyText">▤</text>
+      <rect y="144" width="48" height="40" rx="12" class="railKey"/><text x="24" y="166" class="keyTextSmall">••●</text>
+      <rect x="66" width="55" height="40" rx="12" class="blackKey"/><text x="94" y="22" class="keyText">/</text>
+      <rect x="131" width="55" height="40" rx="12" class="blackKey"/><text x="159" y="22" class="keyText">7</text>
+      <rect x="196" width="55" height="40" rx="12" class="blackKey"/><text x="224" y="22" class="keyText">8</text>
+      <rect x="261" width="55" height="40" rx="12" class="blackKey"/><text x="289" y="22" class="keyText">9</text>
+      <rect x="66" y="48" width="55" height="40" rx="12" class="blackKey"/><text x="94" y="70" class="keyText">*</text>
+      <rect x="131" y="48" width="55" height="40" rx="12" class="blackKey"/><text x="159" y="70" class="keyText">4</text>
+      <rect x="196" y="48" width="55" height="40" rx="12" class="blackKey"/><text x="224" y="70" class="keyText">5</text>
+      <rect x="261" y="48" width="55" height="40" rx="12" class="blackKey"/><text x="289" y="70" class="keyText">6</text>
+      <rect x="66" y="96" width="55" height="40" rx="12" class="blackKey"/><text x="94" y="118" class="keyText">-</text>
+      <rect x="131" y="96" width="55" height="40" rx="12" class="blackKey"/><text x="159" y="118" class="keyText">1</text>
+      <rect x="196" y="96" width="55" height="40" rx="12" class="blackKey"/><text x="224" y="118" class="keyText">2</text>
+      <rect x="261" y="96" width="55" height="40" rx="12" class="blackKey"/><text x="289" y="118" class="keyText">3</text>
+      <rect x="66" y="144" width="55" height="40" rx="12" class="blackKey"/><text x="94" y="166" class="keyText">+</text>
+      <rect x="131" y="144" width="120" height="40" rx="12" class="blackKey"/><text x="191" y="166" class="keyText">0</text>
+      <rect x="261" y="144" width="55" height="40" rx="12" class="blackKey"/><text x="289" y="166" class="keyText">.</text>
+      <rect x="332" width="52" height="40" rx="12" class="railKey"/><text x="358" y="22" class="keyText">⌫</text>
+      <rect x="332" y="96" width="52" height="88" rx="12" class="railKey"/><text x="358" y="142" class="keyTextSmall">Enter</text>
+    </g>
+    <rect x="154" y="733" width="92" height="4" rx="3" fill="#9ca3af"/>
+  </g>
+</svg>

@@ -6,6 +6,7 @@ out/
 # Generated Android files
 local.properties
 .cxx/
+.kotlin/
 
 # IntelliJ / Android Studio
 .idea/
