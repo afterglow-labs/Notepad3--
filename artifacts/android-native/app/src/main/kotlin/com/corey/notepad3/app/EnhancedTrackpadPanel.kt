@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +54,7 @@ fun EnhancedTrackpadPanel(
     palette: Palette,
     onStateChange: (VirtualTrackpadState) -> Unit,
     onPointerDelta: (TrackpadDelta) -> Unit,
+    onPointerClick: () -> Unit,
     onMoveCaret: (TrackpadDirection) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -79,6 +81,7 @@ fun EnhancedTrackpadPanel(
                 palette = palette,
                 onStateChange = onStateChange,
                 onPointerDelta = onPointerDelta,
+                onPointerClick = onPointerClick,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -131,7 +134,7 @@ private fun TrackpadHeader(
             modifier = Modifier.size(15.dp),
         )
         Text(
-            text = if (state.isPinned) "Trackpad pinned" else "Trackpad",
+            text = if (state.isPinned) "Mouse pinned" else "Mouse",
             color = palette.primaryForeground.toTrackpadColor(),
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
             modifier = Modifier
@@ -141,19 +144,19 @@ private fun TrackpadHeader(
         )
         TrackpadIconButton(
             icon = Icons.Filled.PushPin,
-            label = if (state.isPinned) "Unpin trackpad" else "Pin trackpad",
+            label = if (state.isPinned) "Unpin mouse" else "Pin mouse",
             tint = palette.primaryForeground.toTrackpadColor(),
             onClick = { onStateChange(state.togglePinned()) },
         )
         TrackpadIconButton(
             icon = Icons.Filled.OpenInFull,
-            label = "Cycle trackpad size",
+            label = "Cycle mouse pad size",
             tint = palette.primaryForeground.toTrackpadColor(),
             onClick = { onStateChange(state.cycleSize(containerBounds)) },
         )
         TrackpadIconButton(
             icon = Icons.Filled.Close,
-            label = "Close trackpad",
+            label = "Close mouse",
             tint = palette.primaryForeground.toTrackpadColor(),
             onClick = onClose,
         )
@@ -167,6 +170,7 @@ private fun TrackpadDragSurface(
     palette: Palette,
     onStateChange: (VirtualTrackpadState) -> Unit,
     onPointerDelta: (TrackpadDelta) -> Unit,
+    onPointerClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val drag = remember { TrackpadPointerDrag() }
@@ -175,6 +179,9 @@ private fun TrackpadDragSurface(
         modifier = modifier
             .background(palette.muted.toTrackpadColor())
             .border(1.dp, palette.border.toTrackpadColor())
+            .pointerInput(onPointerClick) {
+                detectTapGestures(onTap = { onPointerClick() })
+            }
             .pointerInput(pointerBounds) {
                 var dragState = drag.reset()
                 detectDragGestures(
@@ -202,7 +209,7 @@ private fun TrackpadDragSurface(
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "Drag to move pointer",
+                text = "Drag to move mouse pointer",
                 color = palette.mutedForeground.toTrackpadColor(),
                 style = MaterialTheme.typography.labelSmall,
             )

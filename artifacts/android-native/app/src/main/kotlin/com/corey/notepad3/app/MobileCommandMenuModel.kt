@@ -108,6 +108,12 @@ internal fun shouldShowSoftKeyboardOnEditorFocus(
 ): Boolean =
     !readOnly && !keyboardSuppressed
 
+internal fun toggledTrackpadVisibility(visible: Boolean): Boolean =
+    !visible
+
+internal fun shouldDismissMenusOnOutsidePointer(trackpadActive: Boolean): Boolean =
+    !trackpadActive
+
 internal fun mobileMenuSections(surface: MobileMenuSurface): List<MobileMenuSection> =
     when (surface) {
         MobileMenuSurface.TOP_QUICK -> topQuickMenuSections()
@@ -147,7 +153,7 @@ private fun topQuickMenuSections(): List<MobileMenuSection> =
                 "Compare documents",
                 "Change language",
                 "Go to line",
-                "Virtual trackpad",
+                "Virtual mouse",
                 "Preview markdown",
                 "Read mode",
                 "Zen mode",
@@ -222,7 +228,7 @@ private fun menuBarSections(): List<MobileMenuSection> =
                 "Read mode",
                 "Zen mode",
                 "Preview markdown",
-                "Virtual trackpad",
+                "Virtual mouse",
                 "Switch to classic layout",
                 "Word wrap",
                 "Line numbers",

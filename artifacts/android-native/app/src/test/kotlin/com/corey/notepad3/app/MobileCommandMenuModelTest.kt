@@ -17,7 +17,7 @@ class MobileCommandMenuModelTest {
                 "Compare documents",
                 "Change language",
                 "Go to line",
-                "Virtual trackpad",
+                "Virtual mouse",
                 "Preview markdown",
                 "Read mode",
                 "Zen mode",
@@ -107,6 +107,26 @@ class MobileCommandMenuModelTest {
         assertEquals(false, toggle.active)
         assertTrue(toggle.enabled)
         assertEquals(true, shouldShowSoftKeyboardOnEditorFocus(readOnly = false, keyboardSuppressed = false))
+    }
+
+    @Test
+    fun trackpadToggleOpensTrackpadWithoutChangingLayoutState() {
+        assertTrue(toggledTrackpadVisibility(visible = false))
+    }
+
+    @Test
+    fun trackpadToggleClosesTrackpadWithoutChangingLayoutState() {
+        assertFalse(toggledTrackpadVisibility(visible = true))
+    }
+
+    @Test
+    fun menusDismissOnOutsideTapWhenVirtualMouseIsOff() {
+        assertTrue(shouldDismissMenusOnOutsidePointer(trackpadActive = false))
+    }
+
+    @Test
+    fun menusStayOpenForVirtualMouseTouches() {
+        assertFalse(shouldDismissMenusOnOutsidePointer(trackpadActive = true))
     }
 
     @Test

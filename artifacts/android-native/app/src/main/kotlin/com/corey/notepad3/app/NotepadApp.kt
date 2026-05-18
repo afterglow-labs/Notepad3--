@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Build
+import android.os.SystemClock
 import android.text.Editable
 import android.text.InputType
 import android.text.Spannable
@@ -16,6 +17,8 @@ import android.text.method.KeyListener
 import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
@@ -23,9 +26,12 @@ import android.widget.EditText
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas as ComposeCanvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -67,9 +73,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -80,12 +88,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -96,6 +113,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.PopupProperties
 import com.corey.notepad3.editor.EditResult
 import com.corey.notepad3.editor.EditorCommands
 import com.corey.notepad3.editor.EditorGutter
@@ -124,6 +142,32 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 
+private data class VirtualMouseTarget(
+    val bounds: ComposeRect,
+    val onClick: () -> Unit,
+)
+
+private class VirtualMouseTargetRegistry {
+    private val targets = linkedMapOf<String, VirtualMouseTarget>()
+
+    fun update(id: String, bounds: ComposeRect, onClick: () -> Unit) {
+        targets[id] = VirtualMouseTarget(bounds, onClick)
+    }
+
+    fun remove(id: String) {
+        targets.remove(id)
+    }
+
+    fun clickAt(windowX: Float, windowY: Float): Boolean {
+        val point = Offset(windowX, windowY)
+        val target = targets.values.lastOrNull { it.bounds.contains(point) } ?: return false
+        target.onClick()
+        return true
+    }
+}
+
+private val LocalVirtualMouseTargetRegistry = compositionLocalOf<VirtualMouseTargetRegistry?> { null }
+
 @Composable
 fun NotepadApp(
     store: DocumentStore,
@@ -141,6 +185,8 @@ fun NotepadApp(
     val displayOptions by editorPreferenceController.displayOptions.collectAsState()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val rootView = LocalView.current
+    val virtualMouseTargetRegistry = remember { VirtualMouseTargetRegistry() }
     val active = snapshot.documents.firstOrNull { it.id == snapshot.activeId } ?: snapshot.documents.first()
     val histories = remember { mutableStateMapOf<String, EditorHistory>() }
     val selections = remember { mutableStateMapOf<String, TextSelection>() }
@@ -205,12 +251,6 @@ fun NotepadApp(
     LaunchedEffect(snapshot.documents.size) {
         if (snapshot.documents.size < 2) {
             showCompare = false
-        }
-    }
-
-    LaunchedEffect(layoutMode) {
-        if (layoutMode != EditorLayoutMode.MOBILE) {
-            showTrackpad = false
         }
     }
 
@@ -514,14 +554,24 @@ fun NotepadApp(
     }
 
     fun toggleTrackpad() {
-        if (layoutMode != EditorLayoutMode.MOBILE) {
-            showTrackpad = false
-            showMore = false
-            return
-        }
-        showTrackpad = !showTrackpad
+        showTrackpad = toggledTrackpadVisibility(showTrackpad)
         trackpadCaretAccumulator = TrackpadCaretMovementAccumulator()
         showMore = false
+    }
+
+    fun clickVirtualMousePointer() {
+        if (clickRegisteredVirtualMouseTarget(rootView, virtualMouseTargetRegistry, trackpadState.pointerPosition)) {
+            trackpadCaretAccumulator = TrackpadCaretMovementAccumulator()
+            return
+        }
+        val editText = editorView
+        if (editText != null && placeEditorCaretAtVirtualPointer(rootView, editText, active.body.length, trackpadState.pointerPosition)) {
+            selections[active.id] = TextSelection(editText.selectionStart, editText.selectionEnd)
+            trackpadCaretAccumulator = TrackpadCaretMovementAccumulator()
+            return
+        }
+        dispatchVirtualMouseClick(rootView, trackpadState.pointerPosition)
+        trackpadCaretAccumulator = TrackpadCaretMovementAccumulator()
     }
 
     fun setTheme(name: ThemeName) {
@@ -587,7 +637,26 @@ fun NotepadApp(
                 .background(palette.background.toColor()),
             color = palette.background.toColor(),
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalVirtualMouseTargetRegistry provides virtualMouseTargetRegistry) {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val rootBounds = TrackpadBounds(maxWidth.value, maxHeight.value)
+                LaunchedEffect(showTrackpad, rootBounds.width, rootBounds.height) {
+                    if (
+                        showTrackpad &&
+                        trackpadState.position == TrackpadPoint(0f, 0f) &&
+                        trackpadState.pointerPosition == TrackpadPoint(0f, 0f)
+                    ) {
+                        trackpadState = trackpadState.copy(
+                            position = VirtualTrackpadState.defaultPosition(rootBounds),
+                            pointerPosition = TrackpadPoint(
+                                x = rootBounds.width / 2f,
+                                y = rootBounds.height / 2f,
+                            ),
+                        ).clampedTo(rootBounds)
+                    } else if (showTrackpad) {
+                        trackpadState = trackpadState.clampedTo(rootBounds)
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxSize(),
@@ -836,24 +905,6 @@ fun NotepadApp(
                             .weight(1f)
                             .fillMaxWidth(),
                     ) {
-                        val trackpadContainer = TrackpadBounds(maxWidth.value, maxHeight.value)
-                        LaunchedEffect(showTrackpad, trackpadContainer.width, trackpadContainer.height) {
-                            if (
-                                showTrackpad &&
-                                trackpadState.position == TrackpadPoint(0f, 0f) &&
-                                trackpadState.pointerPosition == TrackpadPoint(0f, 0f)
-                            ) {
-                                trackpadState = trackpadState.copy(
-                                    position = VirtualTrackpadState.defaultPosition(trackpadContainer),
-                                    pointerPosition = TrackpadPoint(
-                                        x = trackpadContainer.width / 2f,
-                                        y = trackpadContainer.height / 2f,
-                                    ),
-                                ).clampedTo(trackpadContainer)
-                            } else if (showTrackpad) {
-                                trackpadState = trackpadState.clampedTo(trackpadContainer)
-                            }
-                        }
                         EditorTextArea(
                             document = active,
                             palette = palette,
@@ -891,38 +942,17 @@ fun NotepadApp(
                                 Icon(Icons.Filled.Add, contentDescription = "New document")
                             }
                         }
-                        if (layoutMode == EditorLayoutMode.MOBILE && showTrackpad) {
-                            EnhancedTrackpadPanel(
+                        if (showTrackpad) {
+                            LowerDocumentMousePad(
                                 state = trackpadState,
-                                containerBounds = trackpadContainer,
-                                pointerBounds = trackpadContainer,
+                                pointerBounds = rootBounds,
                                 palette = palette,
-                                onStateChange = { trackpadState = it.clampedTo(trackpadContainer) },
-                                onPointerDelta = { delta ->
-                                    val movement = trackpadCaretAccumulator.update(delta)
-                                    trackpadCaretAccumulator = movement.accumulator
-                                    if (kotlin.math.abs(movement.horizontalSteps) >= kotlin.math.abs(movement.verticalSteps)) {
-                                        repeat(kotlin.math.abs(movement.horizontalSteps)) {
-                                            moveCursorBy(if (movement.horizontalSteps > 0) 1 else -1)
-                                        }
-                                    } else {
-                                        repeat(kotlin.math.abs(movement.verticalSteps)) {
-                                            moveCursorVertical(if (movement.verticalSteps > 0) 1 else -1)
-                                        }
-                                    }
-                                },
-                                onMoveCaret = { direction ->
-                                    when (direction) {
-                                        TrackpadDirection.LEFT -> moveCursorBy(-1)
-                                        TrackpadDirection.UP -> moveCursorVertical(-1)
-                                        TrackpadDirection.DOWN -> moveCursorVertical(1)
-                                        TrackpadDirection.RIGHT -> moveCursorBy(1)
-                                    }
-                                },
-                                onClose = { showTrackpad = false },
+                                onStateChange = { trackpadState = it.clampedTo(rootBounds) },
+                                onPointerClick = ::clickVirtualMousePointer,
                                 modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .offset(trackpadState.position.x.dp, trackpadState.position.y.dp),
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height((maxHeight.value / 2f).dp),
                             )
                         }
                     }
@@ -989,9 +1019,11 @@ fun NotepadApp(
                             compareEnabled = snapshot.documents.size > 1,
                             compareActive = showCompare,
                             findActive = showFind,
+                            trackpadActive = showTrackpad,
                             onOpen = ::toggleDocumentsPanel,
                             onFind = ::toggleFindPanel,
                             onCompare = ::toggleComparePanel,
+                            onToggleTrackpad = ::toggleTrackpad,
                             onSwitchToClassic = ::switchToClassic,
                             onMore = ::toggleMorePanel,
                         )
@@ -999,11 +1031,15 @@ fun NotepadApp(
                 }
                 }
                 if (showMore) {
+                    val scrimModifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.16f))
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.16f))
-                            .clickable { showMore = false },
+                        modifier = if (shouldDismissMenusOnOutsidePointer(showTrackpad)) {
+                            scrimModifier.clickable { showMore = false }
+                        } else {
+                            scrimModifier
+                        },
                     )
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -1164,10 +1200,22 @@ fun NotepadApp(
                         onEditorFontFamilySelect = editorPreferenceController::setEditorFontFamily,
                     )
                 }
+                if (showTrackpad) {
+                    VirtualMousePointer(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(
+                                x = trackpadState.pointerPosition.x.dp,
+                                y = trackpadState.pointerPosition.y.dp,
+                            ),
+                    )
+                }
             }
         }
     }
 }
+}
+
 @Composable
 private fun WindowBar(
     document: TextDocument,
@@ -1256,10 +1304,10 @@ private fun WindowBar(
                 canUndo = canUndo,
                 canRedo = canRedo,
                 readOnly = readOnly,
+                trackpadActive = trackpadActive,
                 zenMode = zenMode,
                 previewEnabled = previewEnabled,
                 previewActive = previewActive,
-                trackpadActive = trackpadActive,
                 commentEnabled = commentEnabled,
                 onNew = onNew,
                 onOpenFile = onOpenFile,
@@ -1321,6 +1369,7 @@ private fun WindowBar(
                 canUndo = canUndo,
                 canRedo = canRedo,
                 readOnly = readOnly,
+                trackpadActive = trackpadActive,
                 onNew = onNew,
                 onOpen = onOpenDocuments,
                 onOpenFile = onOpenFile,
@@ -1346,6 +1395,7 @@ private fun WindowBar(
                 onTrim = onTrim,
                 onSort = onSort,
                 onToggleReadMode = onToggleReadMode,
+                onToggleTrackpad = onToggleTrackpad,
                 onToggleZenMode = onToggleZenMode,
             )
         } else {
@@ -1435,7 +1485,7 @@ private fun MobileTitleBar(
         TopToolbarAction(TopToolbarButton.NEW_DOCUMENT, Icons.AutoMirrored.Filled.NoteAdd, "New", onClick = onNew),
         TopToolbarAction(TopToolbarButton.FIND, Icons.Filled.Search, "Find", onClick = onFind),
         TopToolbarAction(TopToolbarButton.THEME, Icons.Filled.Brightness6, "Theme", onClick = onCycleTheme),
-        TopToolbarAction(TopToolbarButton.TRACKPAD, Icons.Filled.TouchApp, "Pad", active = trackpadActive, onClick = onToggleTrackpad),
+        TopToolbarAction(TopToolbarButton.TRACKPAD, Icons.Filled.TouchApp, "Mouse", active = trackpadActive, onClick = onToggleTrackpad),
         TopToolbarAction(TopToolbarButton.SWITCH_LAYOUT, Icons.Filled.DesktopWindows, "Classic", onClick = onSwitchToClassic),
         TopToolbarAction(TopToolbarButton.PREFERENCES, Icons.Filled.Settings, "Prefs", onClick = onPreferences),
         TopToolbarAction(TopToolbarButton.COMPARE, Icons.Filled.ViewColumn, "Compare", enabled = compareEnabled, onClick = onCompare),
@@ -1526,6 +1576,10 @@ private fun MobileTitleBar(
             DropdownMenu(
                 expanded = quickOpen,
                 onDismissRequest = { quickOpen = false },
+                properties = PopupProperties(
+                    focusable = shouldDismissMenusOnOutsidePointer(trackpadActive),
+                    dismissOnClickOutside = shouldDismissMenusOnOutsidePointer(trackpadActive),
+                ),
                 modifier = Modifier
                     .background(palette.card.toColor())
                     .border(1.dp, palette.border.toColor()),
@@ -1535,7 +1589,7 @@ private fun MobileTitleBar(
                 ClassicDropdownMenuItem("Compare documents", Icons.Filled.ViewColumn, palette, enabled = compareEnabled) { runQuick(onCompare) }
                 ClassicDropdownMenuItem("Change language", Icons.Filled.Code, palette) { runQuick(onChangeLanguage) }
                 ClassicDropdownMenuItem("Go to line...", Icons.AutoMirrored.Filled.KeyboardTab, palette) { runQuick(onGotoLine) }
-                ClassicDropdownMenuItem("Virtual trackpad", Icons.Filled.TouchApp, palette, checked = trackpadActive) { runQuick(onToggleTrackpad) }
+                ClassicDropdownMenuItem("Virtual mouse", Icons.Filled.TouchApp, palette, checked = trackpadActive) { runQuick(onToggleTrackpad) }
                 ClassicDropdownMenuItem(
                     if (previewActive) "Edit markdown" else "Preview markdown",
                     if (previewActive) Icons.Filled.Edit else Icons.Filled.Visibility,
@@ -1585,11 +1639,13 @@ private fun TopToolbarActionButton(
     }
     val showText = contentMode != AccessoryToolbarContentMode.ICON_ONLY
     val width = accessoryToolbarButtonWidth(buttonSize, contentMode, action.label)
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(action.enabled, action.onClick)
     Row(
         modifier = Modifier
             .width(width)
             .fillMaxHeight()
             .background(if (action.active) palette.muted.toColor() else Color.Transparent, RoundedCornerShape(4.dp))
+            .then(virtualMouseTarget)
             .clickable(enabled = action.enabled, onClick = action.onClick)
             .padding(horizontal = 4.dp),
         horizontalArrangement = Arrangement.Center,
@@ -1735,10 +1791,10 @@ private fun ClassicMenuBar(
     canUndo: Boolean,
     canRedo: Boolean,
     readOnly: Boolean,
+    trackpadActive: Boolean,
     zenMode: Boolean,
     previewEnabled: Boolean,
     previewActive: Boolean,
-    trackpadActive: Boolean,
     commentEnabled: Boolean,
     onNew: () -> Unit,
     onOpenFile: () -> Unit,
@@ -1820,6 +1876,7 @@ private fun ClassicMenuBar(
             menu = ClassicMenu.FILE,
             openMenu = openMenu,
             palette = palette,
+            trackpadActive = trackpadActive,
             onOpen = { openMenu = it },
         ) {
             ClassicDropdownMenuItem(
@@ -1870,6 +1927,7 @@ private fun ClassicMenuBar(
             menu = ClassicMenu.EDIT,
             openMenu = openMenu,
             palette = palette,
+            trackpadActive = trackpadActive,
             onOpen = { openMenu = it },
         ) {
             ClassicDropdownMenuItem(
@@ -1926,6 +1984,7 @@ private fun ClassicMenuBar(
             menu = ClassicMenu.SEARCH,
             openMenu = openMenu,
             palette = palette,
+            trackpadActive = trackpadActive,
             onOpen = { openMenu = it },
         ) {
             ClassicDropdownMenuItem("Find/Replace...", Icons.Filled.Search, palette) { runMenuAction(onFind) }
@@ -1938,6 +1997,7 @@ private fun ClassicMenuBar(
             menu = ClassicMenu.VIEW,
             openMenu = openMenu,
             palette = palette,
+            trackpadActive = trackpadActive,
             onOpen = { openMenu = it },
         ) {
             ClassicDropdownMenuItem("Switch to mobile layout", Icons.Filled.PhoneAndroid, palette) { runMenuAction(onSwitchToMobile) }
@@ -1946,7 +2006,7 @@ private fun ClassicMenuBar(
             ClassicDropdownMenuItem("Read mode", if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, palette, checked = readOnly) { runMenuAction(onToggleReadMode) }
             ClassicDropdownMenuItem("Zen mode", if (zenMode) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen, palette, checked = zenMode) { runMenuAction(onToggleZenMode) }
             ClassicDropdownMenuItem("Markdown preview", Icons.Filled.Visibility, palette, enabled = previewEnabled, checked = previewActive) { runMenuAction(onTogglePreview) }
-            ClassicDropdownMenuItem("Virtual trackpad", Icons.Filled.TouchApp, palette, checked = trackpadActive) { runMenuAction(onToggleTrackpad) }
+            ClassicDropdownMenuItem("Virtual mouse", Icons.Filled.TouchApp, palette, checked = trackpadActive) { runMenuAction(onToggleTrackpad) }
             ClassicDropdownSeparator(palette)
             ClassicDropdownMenuHeader("Editor chrome", palette)
             ClassicDropdownMenuItem("Word wrap", Icons.AutoMirrored.Filled.WrapText, palette, checked = displayOptions.wordWrap) { runMenuAction(onToggleWordWrap) }
@@ -1958,6 +2018,7 @@ private fun ClassicMenuBar(
             menu = ClassicMenu.LANGUAGE,
             openMenu = openMenu,
             palette = palette,
+            trackpadActive = trackpadActive,
             onOpen = { openMenu = it },
         ) {
             DocumentLanguage.selectableLanguages.forEach { language ->
@@ -1976,15 +2037,16 @@ private fun ClassicMenuBar(
             menu = ClassicMenu.SETTINGS,
             openMenu = openMenu,
             palette = palette,
+            trackpadActive = trackpadActive,
             onOpen = { openMenu = it },
         ) {
             ClassicDropdownMenuItem("Preferences...", Icons.Filled.Settings, palette) { runMenuAction(onPreferences) }
             ClassicDropdownSeparator(palette)
-            ClassicDropdownSubmenuItem("Appearance", Icons.Filled.Palette, palette) {
+            ClassicDropdownSubmenuItem("Appearance", Icons.Filled.Palette, palette, trackpadActive = trackpadActive) {
                 ClassicDropdownMenuItem("Appearance preferences...", Icons.Filled.Settings, palette) { runMenuAction(onAppearancePreferences) }
                 ClassicDropdownMenuItem("Top toolbar preferences...", Icons.Filled.ViewHeadline, palette) { runMenuAction(onTopToolbarPreferences) }
                 ClassicDropdownMenuItem("Bottom toolbar preferences...", Icons.Filled.Keyboard, palette) { runMenuAction(onToolbarPreferences) }
-                ClassicDropdownSubmenuItem("Themes", Icons.Filled.Palette, palette) {
+                ClassicDropdownSubmenuItem("Themes", Icons.Filled.Palette, palette, trackpadActive = trackpadActive) {
                     ClassicDropdownMenuItem("Next theme", Icons.Filled.Palette, palette) { runMenuAction(onCycleTheme) }
                     ClassicDropdownSeparator(palette)
                     ThemeName.entries.filterNot { it == ThemeName.CUSTOM }.forEach { theme ->
@@ -2005,6 +2067,7 @@ private fun ClassicMenuBar(
             menu = ClassicMenu.TOOLS,
             openMenu = openMenu,
             palette = palette,
+            trackpadActive = trackpadActive,
             onOpen = { openMenu = it },
         ) {
             ClassicDropdownMenuHeader("Line operations", palette)
@@ -2025,6 +2088,7 @@ private fun ClassicMenuBar(
             menu = ClassicMenu.HELP,
             openMenu = openMenu,
             palette = palette,
+            trackpadActive = trackpadActive,
             onOpen = { openMenu = it },
         ) {
             ClassicDropdownMenuItem("About Notepad 3", Icons.Filled.Info, palette) { runMenuAction(onShowAbout) }
@@ -2040,10 +2104,13 @@ private fun ClassicMenuButton(
     menu: ClassicMenu,
     openMenu: ClassicMenu?,
     palette: Palette,
+    trackpadActive: Boolean,
     onOpen: (ClassicMenu?) -> Unit,
     content: @Composable () -> Unit,
 ) {
     val selected = openMenu == menu
+    val onMenuClick = { onOpen(if (selected) null else menu) }
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled = true, onClick = onMenuClick)
     Box {
         Text(
             text = text,
@@ -2056,12 +2123,17 @@ private fun ClassicMenuButton(
                 .widthIn(min = classicMenuButtonMinWidth(text))
                 .height(23.dp)
                 .background(if (selected) palette.primary.toColor() else Color.Transparent)
-                .clickable { onOpen(if (selected) null else menu) }
+                .then(virtualMouseTarget)
+                .clickable { onMenuClick() }
                 .padding(horizontal = 5.dp, vertical = 3.dp),
         )
         DropdownMenu(
             expanded = selected,
             onDismissRequest = { onOpen(null) },
+            properties = PopupProperties(
+                focusable = shouldDismissMenusOnOutsidePointer(trackpadActive),
+                dismissOnClickOutside = shouldDismissMenusOnOutsidePointer(trackpadActive),
+            ),
             modifier = Modifier
                 .background(palette.card.toColor())
                 .border(1.dp, palette.border.toColor()),
@@ -2089,10 +2161,12 @@ private fun ClassicDropdownMenuItem(
         destructive -> palette.destructive.toColor()
         else -> palette.foreground.toColor()
     }
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled, onClick)
     Row(
         modifier = Modifier
             .widthIn(min = 210.dp)
             .height(28.dp)
+            .then(virtualMouseTarget)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(start = 8.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -2118,6 +2192,7 @@ private fun ClassicDropdownSubmenuItem(
     icon: ImageVector,
     palette: Palette,
     enabled: Boolean = true,
+    trackpadActive: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -2133,19 +2208,22 @@ private fun ClassicDropdownSubmenuItem(
         expanded -> palette.primaryForeground.toColor()
         else -> palette.foreground.toColor()
     }
+    val onSubmenuClick = {
+        if (expanded) {
+            expanded = false
+        } else {
+            revealRequest += 1
+        }
+    }
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled, onSubmenuClick)
     Box {
         Row(
             modifier = Modifier
                 .widthIn(min = 210.dp)
                 .height(28.dp)
                 .background(if (expanded) palette.primary.toColor() else Color.Transparent)
-                .clickable(enabled = enabled) {
-                    if (expanded) {
-                        expanded = false
-                    } else {
-                        revealRequest += 1
-                    }
-                }
+                .then(virtualMouseTarget)
+                .clickable(enabled = enabled) { onSubmenuClick() }
                 .padding(start = 8.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2169,6 +2247,10 @@ private fun ClassicDropdownSubmenuItem(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             offset = DpOffset(x = 210.dp, y = (-28).dp),
+            properties = PopupProperties(
+                focusable = shouldDismissMenusOnOutsidePointer(trackpadActive),
+                dismissOnClickOutside = shouldDismissMenusOnOutsidePointer(trackpadActive),
+            ),
             modifier = Modifier
                 .background(palette.card.toColor())
                 .border(1.dp, palette.border.toColor()),
@@ -2207,6 +2289,7 @@ private fun ClassicToolRack(
     canUndo: Boolean,
     canRedo: Boolean,
     readOnly: Boolean,
+    trackpadActive: Boolean,
     onNew: () -> Unit,
     onOpen: () -> Unit,
     onOpenFile: () -> Unit,
@@ -2232,6 +2315,7 @@ private fun ClassicToolRack(
     onTrim: () -> Unit,
     onSort: () -> Unit,
     onToggleReadMode: () -> Unit,
+    onToggleTrackpad: () -> Unit,
     onToggleZenMode: () -> Unit,
 ) {
     Column(
@@ -2351,6 +2435,7 @@ private fun ClassicToolRack(
                 onClick = onCompare,
             )
             ClassicToolbarButton(icon = Icons.Filled.VisibilityOff, label = "Read mode", palette = palette, active = readOnly, onClick = onToggleReadMode)
+            ClassicToolbarButton(icon = Icons.Filled.TouchApp, label = "Mouse", palette = palette, active = trackpadActive, onClick = onToggleTrackpad)
             ClassicToolbarButton(icon = Icons.Filled.Fullscreen, label = "Zen mode", palette = palette, onClick = onToggleZenMode)
             ClassicToolbarButton(icon = Icons.Filled.Palette, label = "Theme", palette = palette, onClick = onCycleTheme)
             ClassicToolbarButton(icon = Icons.Filled.Settings, label = "Preferences", palette = palette, onClick = onPreferences)
@@ -2374,10 +2459,12 @@ private fun ClassicToolbarButton(
         active -> palette.primary.toColor()
         else -> palette.foreground.toColor()
     }
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled, onClick)
     Column(
         modifier = Modifier
             .width(classicToolbarButtonWidth(label))
             .height(25.dp)
+            .then(virtualMouseTarget)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2403,6 +2490,7 @@ private fun ToolbarGlyph(
     val border = if (enabled) palette.border.toColor() else palette.secondary.toColor()
     val shape = RoundedCornerShape((palette.radius.coerceAtMost(3)).dp)
     val labelText = label.ifBlank { glyph }
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled, onClick)
     Column(
         modifier = modifier
             .defaultMinSize(minWidth = 50.dp, minHeight = 0.dp)
@@ -2418,6 +2506,7 @@ private fun ToolbarGlyph(
                 shape,
             )
             .border(1.dp, border, shape)
+            .then(virtualMouseTarget)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -3439,7 +3528,7 @@ private fun MorePanel(
                             "Read mode" -> MenuActionRow(if (readMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, title, palette, checked = readMode) { run(onToggleReadMode) }
                             "Zen mode" -> MenuActionRow(if (zenMode) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen, title, palette, checked = zenMode) { run(onToggleZenMode) }
                             "Preview markdown" -> MenuActionRow(Icons.Filled.Visibility, title, palette, enabled = previewEnabled, checked = previewActive) { run(onTogglePreview) }
-                            "Virtual trackpad" -> MenuActionRow(Icons.Filled.TouchApp, title, palette, checked = trackpadActive) { run(onToggleTrackpad) }
+                            "Virtual mouse" -> MenuActionRow(Icons.Filled.TouchApp, title, palette, checked = trackpadActive) { run(onToggleTrackpad) }
                             "Switch to classic layout" -> MenuActionRow(Icons.Filled.DesktopWindows, layoutMode.toggleLabel, palette) { run(onToggleLayoutMode) }
                             "Word wrap" -> MenuActionRow(Icons.AutoMirrored.Filled.WrapText, title, palette, checked = displayOptions.wordWrap) { run(onToggleWordWrap) }
                             "Line numbers" -> MenuActionRow(Icons.Filled.FormatListNumbered, title, palette, checked = displayOptions.lineNumbers) { run(onToggleLineNumbers) }
@@ -3515,9 +3604,11 @@ private fun MenuActionRow(
         destructive -> palette.destructive.toColor()
         else -> palette.foreground.toColor()
     }
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled, onClick)
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .then(virtualMouseTarget)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -3918,15 +4009,184 @@ private fun StatusBar(document: TextDocument, selection: TextSelection, readOnly
     )
 }
 
+private fun dispatchVirtualMouseClick(
+    rootView: View,
+    point: TrackpadPoint,
+) {
+    if (rootView.width <= 0 || rootView.height <= 0) return
+    val density = rootView.resources.displayMetrics.density
+    val x = (point.x * density).coerceIn(0f, (rootView.width - 1).toFloat())
+    val y = (point.y * density).coerceIn(0f, (rootView.height - 1).toFloat())
+    val downTime = SystemClock.uptimeMillis()
+    rootView.post {
+        val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)
+        val up = MotionEvent.obtain(downTime, downTime + 40L, MotionEvent.ACTION_UP, x, y, 0)
+        try {
+            rootView.dispatchTouchEvent(down)
+            rootView.dispatchTouchEvent(up)
+        } finally {
+            down.recycle()
+            up.recycle()
+        }
+    }
+}
+
+private fun clickRegisteredVirtualMouseTarget(
+    rootView: View,
+    registry: VirtualMouseTargetRegistry,
+    point: TrackpadPoint,
+): Boolean {
+    val density = rootView.resources.displayMetrics.density
+    val rootLocation = IntArray(2)
+    rootView.getLocationInWindow(rootLocation)
+    return registry.clickAt(
+        windowX = rootLocation[0] + point.x * density,
+        windowY = rootLocation[1] + point.y * density,
+    )
+}
+
+private fun placeEditorCaretAtVirtualPointer(
+    rootView: View,
+    editText: EditorEditText,
+    bodyLength: Int,
+    point: TrackpadPoint,
+): Boolean {
+    if (rootView.width <= 0 || rootView.height <= 0 || editText.width <= 0 || editText.height <= 0) return false
+    val density = rootView.resources.displayMetrics.density
+    val xInRoot = point.x * density
+    val yInRoot = point.y * density
+    val rootLocation = IntArray(2)
+    val editorLocation = IntArray(2)
+    rootView.getLocationOnScreen(rootLocation)
+    editText.getLocationOnScreen(editorLocation)
+    val editorLeft = (editorLocation[0] - rootLocation[0]).toFloat()
+    val editorTop = (editorLocation[1] - rootLocation[1]).toFloat()
+    val localX = xInRoot - editorLeft
+    val localY = yInRoot - editorTop
+    if (localX < 0f || localY < 0f || localX >= editText.width || localY >= editText.height) return false
+    val offset = editText.getOffsetForPosition(localX, localY).coerceIn(0, bodyLength)
+    editText.focusWithoutSoftKeyboard()
+    editText.setSelection(offset)
+    return true
+}
+
+@Composable
+private fun rememberVirtualMouseTargetModifier(
+    enabled: Boolean,
+    onClick: () -> Unit,
+): Modifier {
+    val registry = LocalVirtualMouseTargetRegistry.current
+    val targetId = remember { Any().toString() }
+    val latestOnClick by rememberUpdatedState(onClick)
+    DisposableEffect(registry, targetId, enabled) {
+        onDispose {
+            registry?.remove(targetId)
+        }
+    }
+    return if (registry != null && enabled) {
+        Modifier.onGloballyPositioned { coordinates ->
+            registry.update(targetId, coordinates.boundsInWindow()) {
+                latestOnClick()
+            }
+        }
+    } else {
+        Modifier
+    }
+}
+
+@Composable
+private fun LowerDocumentMousePad(
+    state: VirtualTrackpadState,
+    pointerBounds: TrackpadBounds,
+    palette: Palette,
+    onStateChange: (VirtualTrackpadState) -> Unit,
+    onPointerClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val currentState = rememberUpdatedState(state)
+    val density = LocalDensity.current.density
+    Box(
+        modifier = modifier
+            .background(palette.primary.toColor().copy(alpha = 0.055f))
+            .border(1.dp, palette.primary.toColor().copy(alpha = 0.22f))
+            .pointerInput(onPointerClick) {
+                detectTapGestures(onTap = { onPointerClick() })
+            }
+            .pointerInput(pointerBounds, density) {
+                var dragState = TrackpadPointerDrag()
+                detectDragGestures(
+                    onDragStart = { dragState = dragState.reset() },
+                    onDragEnd = { dragState = dragState.reset() },
+                    onDragCancel = { dragState = dragState.reset() },
+                ) { change, dragAmount ->
+                    change.consume()
+                    val last = dragState.lastTranslation
+                    val result = dragState.update(
+                        state = currentState.value,
+                        translation = TrackpadPoint(
+                            x = last.x + dragAmount.x / density,
+                            y = last.y + dragAmount.y / density,
+                        ),
+                        pointerBounds = pointerBounds,
+                    )
+                    dragState = result.drag
+                    onStateChange(result.state)
+                }
+            },
+        contentAlignment = Alignment.BottomEnd,
+    ) {
+        Icon(
+            Icons.Filled.TouchApp,
+            contentDescription = "Mouse zone",
+            tint = palette.primary.toColor().copy(alpha = 0.45f),
+            modifier = Modifier
+                .padding(10.dp)
+                .size(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun VirtualMousePointer(
+    modifier: Modifier = Modifier,
+) {
+    ComposeCanvas(modifier = modifier.size(width = 28.dp, height = 34.dp)) {
+        val shadow = windowsMousePointerPath(size.width, size.height, offsetX = size.width * 0.055f, offsetY = size.height * 0.045f)
+        val pointer = windowsMousePointerPath(size.width, size.height)
+        drawPath(shadow, Color.Black.copy(alpha = 0.28f))
+        drawPath(pointer, Color.White)
+        drawPath(pointer, Color.Black, style = Stroke(width = size.minDimension * 0.075f))
+    }
+}
+
+private fun windowsMousePointerPath(
+    width: Float,
+    height: Float,
+    offsetX: Float = 0f,
+    offsetY: Float = 0f,
+): Path =
+    Path().apply {
+        moveTo(offsetX + width * 0.04f, offsetY + height * 0.03f)
+        lineTo(offsetX + width * 0.04f, offsetY + height * 0.82f)
+        lineTo(offsetX + width * 0.28f, offsetY + height * 0.63f)
+        lineTo(offsetX + width * 0.43f, offsetY + height * 0.98f)
+        lineTo(offsetX + width * 0.62f, offsetY + height * 0.90f)
+        lineTo(offsetX + width * 0.47f, offsetY + height * 0.56f)
+        lineTo(offsetX + width * 0.82f, offsetY + height * 0.56f)
+        close()
+    }
+
 @Composable
 private fun MobileBottomBar(
     palette: Palette,
     compareEnabled: Boolean,
     compareActive: Boolean,
     findActive: Boolean,
+    trackpadActive: Boolean,
     onOpen: () -> Unit,
     onFind: () -> Unit,
     onCompare: () -> Unit,
+    onToggleTrackpad: () -> Unit,
     onSwitchToClassic: () -> Unit,
     onMore: () -> Unit,
 ) {
@@ -3950,6 +4210,14 @@ private fun MobileBottomBar(
             enabled = compareEnabled,
             modifier = Modifier.weight(1f),
             onClick = onCompare,
+        )
+        MobileNavButton(
+            icon = Icons.Filled.TouchApp,
+            label = "Mouse",
+            palette = palette,
+            active = trackpadActive,
+            modifier = Modifier.weight(1f),
+            onClick = onToggleTrackpad,
         )
         MobileNavButton(icon = Icons.Filled.DesktopWindows, label = "Classic", palette = palette, modifier = Modifier.weight(1f), onClick = onSwitchToClassic)
         MobileNavButton(icon = Icons.Filled.MoreHoriz, label = "More", palette = palette, modifier = Modifier.weight(1f), onClick = onMore)
@@ -4136,7 +4404,7 @@ private fun MobileKeyboardAccessory(
         AccessoryToolbarAction(AccessoryToolbarButton.INSERT_DATE, Icons.Filled.AccessTime, "Date", enabled = !readOnly, onClick = onInsertDateTime),
         AccessoryToolbarAction(AccessoryToolbarButton.OPEN_DOCUMENTS, Icons.Filled.FolderOpen, "Open", onClick = onOpenDocuments),
         AccessoryToolbarAction(AccessoryToolbarButton.COMPARE, Icons.Filled.ViewColumn, "Compare", enabled = compareEnabled, active = compareActive, onClick = onCompare),
-        AccessoryToolbarAction(AccessoryToolbarButton.TRACKPAD, Icons.Filled.TouchApp, "Trackpad", active = trackpadActive, onClick = onToggleTrackpad),
+        AccessoryToolbarAction(AccessoryToolbarButton.TRACKPAD, Icons.Filled.TouchApp, "Mouse", active = trackpadActive, onClick = onToggleTrackpad),
         AccessoryToolbarAction(AccessoryToolbarButton.MORE, Icons.Filled.MoreHoriz, "More", onClick = onMore),
     )
     val visibleActions = allActions.filterNot { it.id in displayOptions.hiddenAccessoryButtons }
@@ -4766,9 +5034,11 @@ private fun MobileNavButton(
         active -> palette.primary.toColor()
         else -> palette.foreground.toColor()
     }
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled, onClick)
     Column(
         modifier = modifier
             .height(52.dp)
+            .then(virtualMouseTarget)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -4800,10 +5070,12 @@ private fun AccessoryButton(
         active -> palette.primary.toColor()
         else -> palette.foreground.toColor()
     }
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled, onClick)
     Column(
         modifier = Modifier
             .defaultMinSize(minWidth = if (showLabel) 48.dp else 36.dp)
             .height(34.dp)
+            .then(virtualMouseTarget)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 1.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -4842,6 +5114,7 @@ private fun CommandButton(
 ) {
     val container = if (primary) palette.primary.toColor() else palette.secondary.toColor()
     val content = if (primary) palette.primaryForeground.toColor() else palette.foreground.toColor()
+    val virtualMouseTarget = rememberVirtualMouseTargetModifier(enabled, onClick)
     Button(
         onClick = onClick,
         enabled = enabled,
@@ -4854,6 +5127,7 @@ private fun CommandButton(
         ),
         shape = RoundedCornerShape(palette.radius.dp),
         modifier = modifier
+            .then(virtualMouseTarget)
             .defaultMinSize(minWidth = 0.dp, minHeight = 0.dp)
             .heightIn(min = 30.dp),
     ) {
