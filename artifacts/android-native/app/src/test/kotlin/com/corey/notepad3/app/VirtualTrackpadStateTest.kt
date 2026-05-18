@@ -7,7 +7,7 @@ import org.junit.Test
 
 class VirtualTrackpadStateTest {
     @Test
-    fun defaultSizeStartsAtMediumAndCyclesThroughLargeExtraLargeSmallMedium() {
+    fun defaultSizeStartsAtMediumAndCyclesThroughLargeExtraLargeHugeSmallMedium() {
         val initial = VirtualTrackpadState()
 
         assertEquals(VirtualTrackpadSize.MEDIUM, initial.size)
@@ -15,13 +15,16 @@ class VirtualTrackpadStateTest {
 
         val large = initial.cycleSize(container = TrackpadBounds(width = 500f, height = 500f))
         val extraLarge = large.cycleSize(container = TrackpadBounds(width = 500f, height = 500f))
-        val small = extraLarge.cycleSize(container = TrackpadBounds(width = 500f, height = 500f))
+        val huge = extraLarge.cycleSize(container = TrackpadBounds(width = 500f, height = 500f))
+        val small = huge.cycleSize(container = TrackpadBounds(width = 500f, height = 500f))
         val medium = small.cycleSize(container = TrackpadBounds(width = 500f, height = 500f))
 
         assertEquals(VirtualTrackpadSize.LARGE, large.size)
         assertEquals(TrackpadBounds(width = 270f, height = 198f), large.bounds)
         assertEquals(VirtualTrackpadSize.EXTRA_LARGE, extraLarge.size)
         assertEquals(TrackpadBounds(width = 336f, height = 248f), extraLarge.bounds)
+        assertEquals(VirtualTrackpadSize.HUGE, huge.size)
+        assertEquals(TrackpadBounds(width = 390f, height = 300f), huge.bounds)
         assertEquals(VirtualTrackpadSize.SMALL, small.size)
         assertEquals(TrackpadBounds(width = 180f, height = 132f), small.bounds)
         assertEquals(VirtualTrackpadSize.MEDIUM, medium.size)
@@ -38,6 +41,16 @@ class VirtualTrackpadStateTest {
         assertEquals(61f, resized.position.y, 0.001f)
         assertEquals(210f, resized.center.x, 0.001f)
         assertEquals(160f, resized.center.y, 0.001f)
+    }
+
+    @Test
+    fun cycleSizeSkipsSizesThatDoNotFitTheContainer() {
+        val state = VirtualTrackpadState(size = VirtualTrackpadSize.MEDIUM)
+
+        val resized = state.cycleSize(container = TrackpadBounds(width = 260f, height = 210f))
+
+        assertEquals(VirtualTrackpadSize.SMALL, resized.size)
+        assertEquals(TrackpadBounds(width = 180f, height = 132f), resized.bounds)
     }
 
     @Test
@@ -103,5 +116,30 @@ class VirtualTrackpadStateTest {
         assertTrue(second.movedPastTapSlop)
         assertEquals(19f, second.state.pointerPosition.x, 0.001f)
         assertEquals(11.8f, second.state.pointerPosition.y, 0.001f)
+    }
+
+    @Test
+    fun caretMovementAccumulatorTurnsSmallTrackpadDeltasIntoSteps() {
+        var accumulator = TrackpadCaretMovementAccumulator()
+
+        val first = accumulator.update(TrackpadDelta(dx = 2f, dy = 0.5f))
+        accumulator = first.accumulator
+        val second = accumulator.update(TrackpadDelta(dx = 2f, dy = 0.5f))
+        accumulator = second.accumulator
+        val third = accumulator.update(TrackpadDelta(dx = 2f, dy = 0.5f))
+
+        assertEquals(0, first.horizontalSteps)
+        assertEquals(0, second.horizontalSteps)
+        assertEquals(1, third.horizontalSteps)
+        assertEquals(0, third.verticalSteps)
+    }
+
+    @Test
+    fun caretMovementAccumulatorPreservesDirectionAndMultipleSteps() {
+        val result = TrackpadCaretMovementAccumulator().update(TrackpadDelta(dx = -14f, dy = -2f))
+
+        assertEquals(-2, result.horizontalSteps)
+        assertEquals(0, result.verticalSteps)
+        assertEquals(-2f, result.accumulator.horizontalRemainder, 0.001f)
     }
 }

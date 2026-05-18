@@ -107,4 +107,11 @@ class DocumentExportTest {
         assertEquals("untitled.txt", DocumentExport.fileNameFor(TextDocument(title = "   ")))
         assertEquals("report", DocumentExport.fileNameFor(TextDocument(title = " report ")))
     }
+
+    @Test
+    fun sanitizesExportNamesForDocumentProviders() {
+        assertEquals("secret.txt", DocumentExport.fileNameFor(TextDocument(title = "../secret.txt")))
+        assertEquals("name_.txt", DocumentExport.fileNameFor(TextDocument(title = "bad/name?.txt")))
+        assertEquals("untitled.txt", DocumentExport.fileNameFor(TextDocument(title = "\u0000\u0007")))
+    }
 }

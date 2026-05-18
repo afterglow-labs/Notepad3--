@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.corey.notepad3.app.AndroidEditorPreferences
 import com.corey.notepad3.app.DocumentExport
+import com.corey.notepad3.app.DocumentImport
 import com.corey.notepad3.app.EditorPreferenceController
 import com.corey.notepad3.app.NotepadApp
 import com.corey.notepad3.models.TextDocument
@@ -52,14 +53,17 @@ class MainActivity : ComponentActivity() {
                 themeController = themeController,
                 editorPreferenceController = editorPreferenceController,
                 onOpenFile = {
-                    openDocumentLauncher.launch(
-                        arrayOf("text/*", "application/json", "application/xml", "application/javascript"),
-                    )
+                    openDocumentLauncher.launch(DocumentImport.openMimeTypes)
                 },
                 onSaveFile = ::beginExportDocument,
                 onCloseApp = ::finishAndRemoveTask,
             )
         }
+    }
+
+    override fun onStop() {
+        documentStore.flushPendingChanges()
+        super.onStop()
     }
 
     private fun importDocument(uri: Uri) {
@@ -68,11 +72,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun beginExportDocument(document: TextDocument) {
-        pendingExportDocument = document
+        documentStore.flushPendingChanges()
+        val latestDocument = documentStore.state.value.documents.firstOrNull { it.id == document.id }
+            ?: documentStore.activeDocument
+        pendingExportDocument = latestDocument
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = DocumentExport.mimeTypeFor(document)
-            putExtra(Intent.EXTRA_TITLE, DocumentExport.fileNameFor(document))
+            type = DocumentExport.mimeTypeFor(latestDocument)
+            putExtra(Intent.EXTRA_TITLE, DocumentExport.fileNameFor(latestDocument))
         }
         saveDocumentLauncher.launch(intent)
     }

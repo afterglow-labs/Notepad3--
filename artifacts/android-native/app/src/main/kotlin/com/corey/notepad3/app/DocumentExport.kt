@@ -5,8 +5,20 @@ import com.corey.notepad3.models.TextDocument
 import java.util.Locale
 
 object DocumentExport {
-    fun fileNameFor(document: TextDocument): String =
-        document.title.trim().ifEmpty { "untitled.txt" }
+    fun fileNameFor(document: TextDocument): String {
+        val sanitized = document.title
+            .trim()
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .map { char ->
+                if (char.isISOControl() || char in invalidFileNameChars) '_' else char
+            }
+            .joinToString("")
+            .trim()
+            .trimEnd('.')
+            .trim()
+        return sanitized.takeUnless { it.isEmpty() || it.all { char -> char == '_' } } ?: "untitled.txt"
+    }
 
     fun mimeTypeFor(document: TextDocument): String {
         val title = fileNameFor(document).lowercase(Locale.ROOT)
@@ -67,4 +79,6 @@ object DocumentExport {
 
     private fun String.endsWithAny(vararg suffixes: String): Boolean =
         suffixes.any(::endsWith)
+
+    private val invalidFileNameChars = setOf('<', '>', ':', '"', '/', '\\', '|', '?', '*')
 }

@@ -66,16 +66,26 @@ enum class StarterContent {
 }
 
 fun List<TextDocument>.nextUntitledName(): String {
-    val next = count { it.title.startsWith("untitled") } + 1
-    return "untitled-$next.txt"
+    val nextIndex = mapNotNull { untitledTitleRegex.matchEntire(it.title)?.groupValues?.get(1)?.toIntOrNull() }
+        .maxOrNull()
+        ?.plus(1)
+        ?: 1
+    return "untitled-$nextIndex.txt"
 }
 
-fun TextDocument.duplicateTitle(): String {
-    val dot = title.lastIndexOf('.')
-    return if (dot > 0) {
-        "${title.substring(0, dot)} copy${title.substring(dot)}"
-    } else {
-        "$title copy"
+private val untitledTitleRegex = Regex("untitled-(\\d+)\\.txt")
+
+fun List<TextDocument>.duplicateTitleFor(source: TextDocument): String {
+    val titles = map { it.title }.toSet()
+    val dot = source.title.lastIndexOf('.')
+    val base = if (dot > 0) source.title.substring(0, dot) else source.title
+    val extension = if (dot > 0) source.title.substring(dot) else ""
+    var suffix = 1
+    while (true) {
+        val copySuffix = if (suffix == 1) " copy" else " copy $suffix"
+        val candidate = "$base$copySuffix$extension"
+        if (candidate !in titles) return candidate
+        suffix += 1
     }
 }
 

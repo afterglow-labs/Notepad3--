@@ -74,14 +74,33 @@ class EditorPreferencesTest {
         controller.adjustToolbarRows(10)
         controller.setToolbarButtonSize(AccessoryToolbarButtonSize.LARGE)
         controller.setToolbarContentMode(AccessoryToolbarContentMode.ICON_ONLY)
+        controller.setNavigationClusterSide(AccessoryNavigationClusterSide.RIGHT)
 
         assertEquals(3, controller.displayOptions.value.accessoryToolbarRows)
         assertEquals(AccessoryToolbarButtonSize.LARGE, controller.displayOptions.value.accessoryToolbarButtonSize)
         assertEquals(AccessoryToolbarContentMode.ICON_ONLY, controller.displayOptions.value.accessoryToolbarContentMode)
+        assertEquals(AccessoryNavigationClusterSide.RIGHT, controller.displayOptions.value.navigationClusterSide)
 
         controller.adjustToolbarRows(-10)
 
         assertEquals(1, controller.displayOptions.value.accessoryToolbarRows)
+    }
+
+    @Test
+    fun controllerCustomizesTopToolbarLayoutWithinUsableBounds() {
+        val controller = EditorPreferenceController(InMemoryEditorPreferences())
+
+        controller.adjustTopToolbarRows(10)
+        controller.setTopToolbarButtonSize(AccessoryToolbarButtonSize.LARGE)
+        controller.setTopToolbarContentMode(AccessoryToolbarContentMode.ICON_ONLY)
+
+        assertEquals(3, controller.displayOptions.value.topToolbarRows)
+        assertEquals(AccessoryToolbarButtonSize.LARGE, controller.displayOptions.value.topToolbarButtonSize)
+        assertEquals(AccessoryToolbarContentMode.ICON_ONLY, controller.displayOptions.value.topToolbarContentMode)
+
+        controller.adjustTopToolbarRows(-10)
+
+        assertEquals(1, controller.displayOptions.value.topToolbarRows)
     }
 
     @Test
@@ -109,6 +128,26 @@ class EditorPreferencesTest {
     }
 
     @Test
+    fun controllerCustomizesPinnedAndHiddenTopToolbarButtons() {
+        val controller = EditorPreferenceController(InMemoryEditorPreferences())
+
+        assertTrue(controller.displayOptions.value.staticTopToolbarButtons.contains(TopToolbarButton.MORE))
+        assertTrue(controller.displayOptions.value.hiddenTopToolbarButtons.contains(TopToolbarButton.GOTO_LINE))
+        assertFalse(controller.displayOptions.value.hiddenTopToolbarButtons.contains(TopToolbarButton.TRACKPAD))
+
+        controller.toggleStaticTopToolbarButton(TopToolbarButton.TRACKPAD)
+        controller.toggleHiddenTopToolbarButton(TopToolbarButton.FIND)
+
+        assertTrue(controller.displayOptions.value.staticTopToolbarButtons.contains(TopToolbarButton.TRACKPAD))
+        assertTrue(controller.displayOptions.value.hiddenTopToolbarButtons.contains(TopToolbarButton.FIND))
+
+        controller.toggleStaticTopToolbarButton(TopToolbarButton.FIND)
+
+        assertTrue(controller.displayOptions.value.staticTopToolbarButtons.contains(TopToolbarButton.FIND))
+        assertFalse(controller.displayOptions.value.hiddenTopToolbarButtons.contains(TopToolbarButton.FIND))
+    }
+
+    @Test
     fun accessoryToolbarPinnedAndHiddenChoicesStayMutuallyExclusive() {
         val controller = EditorPreferenceController(InMemoryEditorPreferences())
 
@@ -132,12 +171,21 @@ class EditorPreferencesTest {
         assertTrue(displayTitles.contains("Hide"))
         assertTrue(displayTitles.contains("Undo"))
         assertTrue(displayTitles.contains("Redo"))
+        assertTrue(displayTitles.contains("Trackpad"))
         assertFalse(displayTitles.contains("Undo/Redo"))
         assertTrue(AccessoryToolbarButton.entries.map { it.storageName }.contains("undo"))
         assertTrue(AccessoryToolbarButton.entries.map { it.storageName }.contains("redo"))
+        assertTrue(AccessoryToolbarButton.entries.map { it.storageName }.contains("trackpad"))
         assertFalse(AccessoryToolbarButton.entries.map { it.storageName }.contains("undo_redo"))
         assertFalse(displayTitles.contains("Replace"))
         assertFalse(AccessoryToolbarButton.entries.any { it.storageName == "replace" })
+    }
+
+    @Test
+    fun topToolbarExposesTrackpadAsADefaultVisibleButton() {
+        assertTrue(TopToolbarButton.entries.map { it.displayTitle }.contains("Trackpad"))
+        assertTrue(EditorDisplayOptions.DEFAULT_TOP_TOOLBAR_BUTTONS.contains(TopToolbarButton.TRACKPAD))
+        assertFalse(EditorDisplayOptions.DEFAULT_HIDDEN_TOP_TOOLBAR_BUTTONS.contains(TopToolbarButton.TRACKPAD))
     }
 
     @Test

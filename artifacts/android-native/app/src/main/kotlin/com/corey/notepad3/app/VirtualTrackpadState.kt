@@ -32,15 +32,46 @@ enum class VirtualTrackpadSize(
     SMALL(TrackpadBounds(width = 180f, height = 132f)),
     MEDIUM(TrackpadBounds(width = 220f, height = 160f)),
     LARGE(TrackpadBounds(width = 270f, height = 198f)),
-    EXTRA_LARGE(TrackpadBounds(width = 336f, height = 248f));
+    EXTRA_LARGE(TrackpadBounds(width = 336f, height = 248f)),
+    HUGE(TrackpadBounds(width = 390f, height = 300f));
 
     fun next(): VirtualTrackpadSize =
         when (this) {
             SMALL -> MEDIUM
             MEDIUM -> LARGE
             LARGE -> EXTRA_LARGE
-            EXTRA_LARGE -> SMALL
+            EXTRA_LARGE -> HUGE
+            HUGE -> SMALL
         }
+
+    fun nextFitting(
+        container: TrackpadBounds,
+        insets: TrackpadInsets,
+    ): VirtualTrackpadSize {
+        var candidate = next()
+        repeat(entries.size) {
+            if (candidate.fits(container, insets)) return candidate
+            candidate = candidate.next()
+        }
+        return this
+    }
+
+    fun coerceToFit(
+        container: TrackpadBounds,
+        insets: TrackpadInsets,
+    ): VirtualTrackpadSize =
+        if (fits(container, insets)) {
+            this
+        } else {
+            entries.asReversed().firstOrNull { it.fits(container, insets) } ?: SMALL
+        }
+
+    private fun fits(
+        container: TrackpadBounds,
+        insets: TrackpadInsets,
+    ): Boolean =
+        bounds.width <= max(0f, container.width - insets.left - insets.right) &&
+            bounds.height <= max(0f, container.height - insets.top - insets.bottom)
 }
 
 enum class TrackpadDirection {
@@ -73,7 +104,7 @@ data class VirtualTrackpadState(
 
     fun cycleSize(container: TrackpadBounds): VirtualTrackpadState {
         val currentCenter = center
-        val nextSize = size.next()
+        val nextSize = size.nextFitting(container, insets)
         val nextBounds = nextSize.bounds
         return copy(
             size = nextSize,
@@ -99,7 +130,12 @@ data class VirtualTrackpadState(
     }
 
     fun clampedTo(container: TrackpadBounds): VirtualTrackpadState =
-        copy(position = clampPanelPosition(position, bounds, container, insets))
+        size.coerceToFit(container, insets).let { fittingSize ->
+            copy(
+                size = fittingSize,
+                position = clampPanelPosition(position, fittingSize.bounds, container, insets),
+            )
+        }
 
     fun movePointerBy(
         dx: Float,
@@ -192,6 +228,40 @@ data class TrackpadPointerDragResult(
     val movedPastTapSlop: Boolean
         get() = drag.movedPastTapSlop
 }
+
+data class TrackpadCaretMovementAccumulator(
+    val horizontalRemainder: Float = 0f,
+    val verticalRemainder: Float = 0f,
+    val stepThreshold: Float = DEFAULT_CARET_STEP_THRESHOLD,
+) {
+    fun update(delta: TrackpadDelta): TrackpadCaretMovementResult {
+        val horizontal = horizontalRemainder + delta.dx
+        val vertical = verticalRemainder + delta.dy
+        val horizontalSteps = stepsFor(horizontal)
+        val verticalSteps = stepsFor(vertical)
+        return TrackpadCaretMovementResult(
+            accumulator = copy(
+                horizontalRemainder = horizontal - horizontalSteps * stepThreshold,
+                verticalRemainder = vertical - verticalSteps * stepThreshold,
+            ),
+            horizontalSteps = horizontalSteps,
+            verticalSteps = verticalSteps,
+        )
+    }
+
+    private fun stepsFor(value: Float): Int =
+        if (abs(value) < stepThreshold) 0 else (value / stepThreshold).toInt()
+
+    companion object {
+        const val DEFAULT_CARET_STEP_THRESHOLD = 6f
+    }
+}
+
+data class TrackpadCaretMovementResult(
+    val accumulator: TrackpadCaretMovementAccumulator,
+    val horizontalSteps: Int,
+    val verticalSteps: Int,
+)
 
 private fun clampPanelPosition(
     position: TrackpadPoint,

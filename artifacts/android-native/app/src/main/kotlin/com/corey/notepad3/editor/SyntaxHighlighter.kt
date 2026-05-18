@@ -38,6 +38,9 @@ object SyntaxHighlighter {
         if (rules.supportsBlockComments) {
             claimMatches(text, Regexes.blockComment, HighlightCategory.COMMENT, claimed, ranges)
         }
+        if (rules.supportsMarkupComments) {
+            claimMatches(text, Regexes.markupComment, HighlightCategory.COMMENT, claimed, ranges)
+        }
         claimLineComments(text, rules.commentPrefixes, claimed, ranges)
         claimMatches(text, Regexes.number, HighlightCategory.NUMBER, claimed, ranges)
         claimKeywords(text, rules, claimed, ranges)
@@ -120,6 +123,7 @@ object SyntaxHighlighter {
 
     private object Regexes {
         val blockComment = Regex("/\\*[\\s\\S]*?\\*/")
+        val markupComment = Regex("<!--[\\s\\S]*?-->")
         val string = Regex("`(?:\\\\.|[^`\\\\])*`|\"(?:[^\"\\\\\\n]|\\\\.)*\"|'(?:[^'\\\\\\n]|\\\\.)*'")
         val number = Regex("\\b(?:0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b")
         val identifier = Regex("\\b[A-Za-z_][A-Za-z0-9_]*\\b")
@@ -129,6 +133,7 @@ object SyntaxHighlighter {
         val keywords: Set<String>,
         val commentPrefixes: List<String>,
         val supportsBlockComments: Boolean,
+        val supportsMarkupComments: Boolean,
         val caseInsensitiveKeywords: Boolean,
     )
 
@@ -137,6 +142,7 @@ object SyntaxHighlighter {
             keywords = keywordsFor(language),
             commentPrefixes = commentPrefixesFor(language),
             supportsBlockComments = supportsBlockComments(language),
+            supportsMarkupComments = supportsMarkupComments(language),
             caseInsensitiveKeywords = caseInsensitiveKeywords(language),
         )
 
@@ -153,9 +159,6 @@ object SyntaxHighlighter {
             -> listOf("#")
             DocumentLanguage.INI -> listOf(";", "#")
             DocumentLanguage.SQL -> listOf("--")
-            DocumentLanguage.HTML,
-            DocumentLanguage.XML,
-            -> listOf("<!--")
             DocumentLanguage.JAVA_SCRIPT,
             DocumentLanguage.KOTLIN,
             DocumentLanguage.SWIFT,
@@ -170,6 +173,8 @@ object SyntaxHighlighter {
             DocumentLanguage.JSON,
             -> listOf("//")
             DocumentLanguage.CSS,
+            DocumentLanguage.HTML,
+            DocumentLanguage.XML,
             DocumentLanguage.PLAIN,
             DocumentLanguage.MARKDOWN,
             -> emptyList()
@@ -191,6 +196,15 @@ object SyntaxHighlighter {
             DocumentLanguage.CSS,
             DocumentLanguage.WEB,
             DocumentLanguage.JSON,
+            -> true
+            else -> false
+        }
+
+    private fun supportsMarkupComments(language: DocumentLanguage): Boolean =
+        when (language) {
+            DocumentLanguage.HTML,
+            DocumentLanguage.XML,
+            DocumentLanguage.WEB,
             -> true
             else -> false
         }
@@ -236,10 +250,10 @@ object SyntaxHighlighter {
             DocumentLanguage.INI,
             DocumentLanguage.DOCKERFILE,
             -> configKeywords
-            DocumentLanguage.HTML,
+            DocumentLanguage.HTML -> commonKeywords + markupKeywords + javaScriptKeywords
+            DocumentLanguage.WEB -> commonKeywords + markupKeywords + javaScriptKeywords
             DocumentLanguage.CSS,
             DocumentLanguage.XML,
-            DocumentLanguage.WEB,
             DocumentLanguage.JSON,
             -> commonKeywords + markupKeywords
             DocumentLanguage.PLAIN,

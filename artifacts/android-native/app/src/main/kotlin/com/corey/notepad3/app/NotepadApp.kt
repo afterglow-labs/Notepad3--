@@ -168,11 +168,13 @@ fun NotepadApp(
     var preferencesDestination by rememberSaveable { mutableStateOf(PreferencesDestination.GENERAL) }
     var showTrackpad by rememberSaveable { mutableStateOf(false) }
     var trackpadState by remember { mutableStateOf(VirtualTrackpadState()) }
+    var trackpadCaretAccumulator by remember { mutableStateOf(TrackpadCaretMovementAccumulator()) }
     var shiftAnchor by rememberSaveable { mutableStateOf<Int?>(null) }
     var readMode by rememberSaveable { mutableStateOf(false) }
     var zenMode by rememberSaveable { mutableStateOf(false) }
     var editorFocused by rememberSaveable { mutableStateOf(false) }
     var keyboardSuppressed by rememberSaveable { mutableStateOf(false) }
+    var keyboardSuppressedBeforeReadMode by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var editorView by remember { mutableStateOf<EditorEditText?>(null) }
     val showingMarkdownPreview = previewMode && active.language == DocumentLanguage.MARKDOWN
     val searchOptions = SearchOptions(
@@ -194,6 +196,26 @@ fun NotepadApp(
         onDispose {
             store.flushPendingChanges()
         }
+    }
+
+    LaunchedEffect(active.id) {
+        shiftAnchor = null
+    }
+
+    LaunchedEffect(snapshot.documents.size) {
+        if (snapshot.documents.size < 2) {
+            showCompare = false
+        }
+    }
+
+    LaunchedEffect(layoutMode) {
+        if (layoutMode != EditorLayoutMode.MOBILE) {
+            showTrackpad = false
+        }
+    }
+
+    LaunchedEffect(showTrackpad) {
+        trackpadCaretAccumulator = TrackpadCaretMovementAccumulator()
     }
 
     fun rememberSelection(selection: TextSelection) {
@@ -272,6 +294,11 @@ fun NotepadApp(
     }
 
     fun toggleComparePanel() {
+        if (snapshot.documents.size < 2) {
+            showCompare = false
+            showMore = false
+            return
+        }
         showCompare = !showCompare
     }
 
@@ -469,8 +496,12 @@ fun NotepadApp(
         val nextReadMode = !readMode
         readMode = nextReadMode
         if (nextReadMode) {
+            keyboardSuppressedBeforeReadMode = keyboardSuppressed
             keyboardSuppressed = true
             context.hideSoftKeyboard()
+        } else {
+            keyboardSuppressed = keyboardSuppressedBeforeReadMode ?: false
+            keyboardSuppressedBeforeReadMode = null
         }
         showMore = false
     }
@@ -483,7 +514,13 @@ fun NotepadApp(
     }
 
     fun toggleTrackpad() {
+        if (layoutMode != EditorLayoutMode.MOBILE) {
+            showTrackpad = false
+            showMore = false
+            return
+        }
         showTrackpad = !showTrackpad
+        trackpadCaretAccumulator = TrackpadCaretMovementAccumulator()
         showMore = false
     }
 
@@ -494,6 +531,8 @@ fun NotepadApp(
 
     fun switchToClassic() {
         editorPreferenceController.setLayoutMode(EditorLayoutMode.CLASSIC)
+        showTrackpad = false
+        trackpadCaretAccumulator = TrackpadCaretMovementAccumulator()
         showMore = false
     }
 
@@ -517,6 +556,12 @@ fun NotepadApp(
 
     fun showAboutPanel() {
         showAbout = true
+        showMore = false
+    }
+
+    fun saveActiveDocument() {
+        store.flushPendingChanges()
+        onSaveFile(store.activeDocument)
         showMore = false
     }
 
@@ -569,13 +614,14 @@ fun NotepadApp(
                         onThemeSelect = ::setTheme,
                         onOpenDocuments = ::toggleDocumentsPanel,
                         onOpenFile = onOpenFile,
-                        onSave = { onSaveFile(active) },
+                        onSave = ::saveActiveDocument,
                         onFind = ::toggleFindPanel,
                         onCompare = ::toggleComparePanel,
                         onMore = ::toggleMorePanel,
                         onPreferences = { openPreferencesPanel() },
                         onAppearancePreferences = { openPreferencesPanel(PreferencesDestination.APPEARANCE) },
                         onToolbarPreferences = { openPreferencesPanel(PreferencesDestination.TOOLBAR) },
+                        onTopToolbarPreferences = { openPreferencesPanel(PreferencesDestination.TOP_TOOLBAR) },
                         onShowAbout = ::showAboutPanel,
                         onToggleWordWrap = editorPreferenceController::toggleWordWrap,
                         onToggleLineNumbers = editorPreferenceController::toggleLineNumbers,
@@ -804,6 +850,8 @@ fun NotepadApp(
                                         y = trackpadContainer.height / 2f,
                                     ),
                                 ).clampedTo(trackpadContainer)
+                            } else if (showTrackpad) {
+                                trackpadState = trackpadState.clampedTo(trackpadContainer)
                             }
                         }
                         EditorTextArea(
@@ -851,12 +899,16 @@ fun NotepadApp(
                                 palette = palette,
                                 onStateChange = { trackpadState = it.clampedTo(trackpadContainer) },
                                 onPointerDelta = { delta ->
-                                    if (kotlin.math.abs(delta.dx) > kotlin.math.abs(delta.dy)) {
-                                        if (kotlin.math.abs(delta.dx) >= 6f) {
-                                            moveCursorBy(if (delta.dx > 0) 1 else -1)
+                                    val movement = trackpadCaretAccumulator.update(delta)
+                                    trackpadCaretAccumulator = movement.accumulator
+                                    if (kotlin.math.abs(movement.horizontalSteps) >= kotlin.math.abs(movement.verticalSteps)) {
+                                        repeat(kotlin.math.abs(movement.horizontalSteps)) {
+                                            moveCursorBy(if (movement.horizontalSteps > 0) 1 else -1)
                                         }
-                                    } else if (kotlin.math.abs(delta.dy) >= 6f) {
-                                        moveCursorVertical(if (delta.dy > 0) 1 else -1)
+                                    } else {
+                                        repeat(kotlin.math.abs(movement.verticalSteps)) {
+                                            moveCursorVertical(if (movement.verticalSteps > 0) 1 else -1)
+                                        }
                                     }
                                 },
                                 onMoveCaret = { direction ->
@@ -906,6 +958,8 @@ fun NotepadApp(
                             onMoveUp = { moveCursorVertical(-1) },
                             onMoveDown = { moveCursorVertical(1) },
                             onMoveRight = { moveCursorBy(1) },
+                            trackpadActive = showTrackpad,
+                            onToggleTrackpad = ::toggleTrackpad,
                             onPageUp = { moveCursorPage(-1) },
                             onPageDown = { moveCursorPage(1) },
                             onHome = ::moveCursorHome,
@@ -965,6 +1019,7 @@ fun NotepadApp(
                             activeLanguage = active.language,
                             displayOptions = displayOptions,
                             trackpadActive = showTrackpad,
+                            compareEnabled = snapshot.documents.size > 1,
                             onDismiss = { showMore = false },
                             onNew = {
                                 store.createBlank()
@@ -978,10 +1033,7 @@ fun NotepadApp(
                                 onOpenFile()
                                 showMore = false
                             },
-                            onSave = {
-                                onSaveFile(active)
-                                showMore = false
-                            },
+                            onSave = ::saveActiveDocument,
                             onDuplicateDocument = {
                                 store.duplicateActive()
                                 showMore = false
@@ -1074,6 +1126,7 @@ fun NotepadApp(
                             onPreferences = { openPreferencesPanel() },
                             onAppearancePreferences = { openPreferencesPanel(PreferencesDestination.APPEARANCE) },
                             onToolbarPreferences = { openPreferencesPanel(PreferencesDestination.TOOLBAR) },
+                            onTopToolbarPreferences = { openPreferencesPanel(PreferencesDestination.TOP_TOOLBAR) },
                             onShowAbout = ::showAboutPanel,
                             modifier = Modifier.padding(8.dp),
                         )
@@ -1097,8 +1150,15 @@ fun NotepadApp(
                         onToolbarRowsUp = { editorPreferenceController.adjustToolbarRows(1) },
                         onToolbarButtonSizeSelect = editorPreferenceController::setToolbarButtonSize,
                         onToolbarContentModeSelect = editorPreferenceController::setToolbarContentMode,
+                        onNavigationClusterSideSelect = editorPreferenceController::setNavigationClusterSide,
                         onToggleStaticAccessoryButton = editorPreferenceController::toggleStaticAccessoryButton,
                         onToggleHiddenAccessoryButton = editorPreferenceController::toggleHiddenAccessoryButton,
+                        onTopToolbarRowsDown = { editorPreferenceController.adjustTopToolbarRows(-1) },
+                        onTopToolbarRowsUp = { editorPreferenceController.adjustTopToolbarRows(1) },
+                        onTopToolbarButtonSizeSelect = editorPreferenceController::setTopToolbarButtonSize,
+                        onTopToolbarContentModeSelect = editorPreferenceController::setTopToolbarContentMode,
+                        onToggleStaticTopToolbarButton = editorPreferenceController::toggleStaticTopToolbarButton,
+                        onToggleHiddenTopToolbarButton = editorPreferenceController::toggleHiddenTopToolbarButton,
                         onFontSizeDown = { editorPreferenceController.adjustFontSize(-1) },
                         onFontSizeUp = { editorPreferenceController.adjustFontSize(1) },
                         onEditorFontFamilySelect = editorPreferenceController::setEditorFontFamily,
@@ -1137,6 +1197,7 @@ private fun WindowBar(
     onPreferences: () -> Unit,
     onAppearancePreferences: () -> Unit,
     onToolbarPreferences: () -> Unit,
+    onTopToolbarPreferences: () -> Unit,
     onShowAbout: () -> Unit,
     onToggleWordWrap: () -> Unit,
     onToggleLineNumbers: () -> Unit,
@@ -1239,6 +1300,7 @@ private fun WindowBar(
                 onPreferences = onPreferences,
                 onAppearancePreferences = onAppearancePreferences,
                 onToolbarPreferences = onToolbarPreferences,
+                onTopToolbarPreferences = onTopToolbarPreferences,
                 onShowAbout = onShowAbout,
                 onThemeSelect = onThemeSelect,
                 onCycleTheme = onCycleTheme,
@@ -1290,6 +1352,7 @@ private fun WindowBar(
             MobileTitleBar(
                 document = document,
                 palette = palette,
+                displayOptions = displayOptions,
                 onNew = onNew,
                 onOpenDocuments = onOpenDocuments,
                 onFind = onFind,
@@ -1327,6 +1390,7 @@ private fun WindowBar(
 private fun MobileTitleBar(
     document: TextDocument,
     palette: Palette,
+    displayOptions: EditorDisplayOptions,
     onNew: () -> Unit,
     onOpenDocuments: () -> Unit,
     onFind: () -> Unit,
@@ -1357,18 +1421,62 @@ private fun MobileTitleBar(
     onCloseDocument: () -> Unit,
 ) {
     var quickOpen by remember { mutableStateOf(false) }
+    val toolbarRows = displayOptions.topToolbarRows
+    val buttonSize = displayOptions.topToolbarButtonSize
+    val contentMode = displayOptions.topToolbarContentMode
 
     fun runQuick(action: () -> Unit) {
         quickOpen = false
         action()
     }
 
+    val allActions = listOf(
+        TopToolbarAction(TopToolbarButton.OPEN_DOCUMENTS, Icons.AutoMirrored.Filled.List, "Tabs", onClick = onOpenDocuments),
+        TopToolbarAction(TopToolbarButton.NEW_DOCUMENT, Icons.AutoMirrored.Filled.NoteAdd, "New", onClick = onNew),
+        TopToolbarAction(TopToolbarButton.FIND, Icons.Filled.Search, "Find", onClick = onFind),
+        TopToolbarAction(TopToolbarButton.THEME, Icons.Filled.Brightness6, "Theme", onClick = onCycleTheme),
+        TopToolbarAction(TopToolbarButton.TRACKPAD, Icons.Filled.TouchApp, "Pad", active = trackpadActive, onClick = onToggleTrackpad),
+        TopToolbarAction(TopToolbarButton.SWITCH_LAYOUT, Icons.Filled.DesktopWindows, "Classic", onClick = onSwitchToClassic),
+        TopToolbarAction(TopToolbarButton.PREFERENCES, Icons.Filled.Settings, "Prefs", onClick = onPreferences),
+        TopToolbarAction(TopToolbarButton.COMPARE, Icons.Filled.ViewColumn, "Compare", enabled = compareEnabled, onClick = onCompare),
+        TopToolbarAction(TopToolbarButton.CHANGE_LANGUAGE, Icons.Filled.Code, "Lang", onClick = onChangeLanguage),
+        TopToolbarAction(TopToolbarButton.GOTO_LINE, Icons.AutoMirrored.Filled.KeyboardTab, "Go to", onClick = onGotoLine),
+        TopToolbarAction(
+            TopToolbarButton.PREVIEW,
+            if (previewActive) Icons.Filled.Edit else Icons.Filled.Visibility,
+            if (previewActive) "Edit" else "Preview",
+            enabled = previewEnabled,
+            active = previewActive,
+            onClick = onTogglePreview,
+        ),
+        TopToolbarAction(
+            TopToolbarButton.READ_MODE,
+            if (readOnly) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+            "Read",
+            active = readOnly,
+            onClick = onToggleReadMode,
+        ),
+        TopToolbarAction(TopToolbarButton.ZEN_MODE, if (zenMode) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen, "Zen", active = zenMode, onClick = onToggleZenMode),
+        TopToolbarAction(TopToolbarButton.SORT_LINES, Icons.Filled.SortByAlpha, "Sort", enabled = !readOnly, onClick = onSort),
+        TopToolbarAction(TopToolbarButton.TRIM_SPACES, Icons.AutoMirrored.Filled.FormatAlignLeft, "Trim", enabled = !readOnly, onClick = onTrim),
+        TopToolbarAction(TopToolbarButton.DUPLICATE_LINE, Icons.Filled.AddBox, "Dup line", enabled = !readOnly, onClick = onDuplicateLine),
+        TopToolbarAction(TopToolbarButton.DELETE_LINE, Icons.Filled.IndeterminateCheckBox, "Del line", enabled = !readOnly, onClick = onDeleteLine),
+        TopToolbarAction(TopToolbarButton.INSERT_DATE, Icons.Filled.AccessTime, "Date", enabled = !readOnly, onClick = onInsertDateTime),
+        TopToolbarAction(TopToolbarButton.DUPLICATE_DOCUMENT, Icons.Filled.ContentCopy, "Dup doc", onClick = onDuplicateDocument),
+        TopToolbarAction(TopToolbarButton.RENAME_DOCUMENT, Icons.Filled.Edit, "Rename", onClick = onRenameDocument),
+        TopToolbarAction(TopToolbarButton.CLOSE_DOCUMENT, Icons.Filled.Close, "Close", onClick = onCloseDocument),
+        TopToolbarAction(TopToolbarButton.MORE, Icons.Filled.MoreHoriz, "More", onClick = { quickOpen = true }),
+    )
+    val visibleActions = allActions.filterNot { it.id in displayOptions.hiddenTopToolbarButtons }
+    val staticActions = visibleActions.filter { it.id in displayOptions.staticTopToolbarButtons }
+    val scrollingActions = visibleActions.filterNot { it.id in displayOptions.staticTopToolbarButtons }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height((buttonSize.rowHeightDp * toolbarRows + 12).dp)
             .background(palette.background.toColor())
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1380,18 +1488,41 @@ private fun MobileTitleBar(
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
-        RoundIconButton(icon = Icons.AutoMirrored.Filled.List, label = "Tabs", palette = palette, onClick = onOpenDocuments)
-        RoundIconButton(icon = Icons.AutoMirrored.Filled.NoteAdd, label = "New document", palette = palette, onClick = onNew)
-        RoundIconButton(icon = Icons.Filled.Search, label = "Find", palette = palette, onClick = onFind)
-        RoundIconButton(icon = Icons.Filled.Brightness6, label = "Theme", palette = palette, onClick = onCycleTheme)
-        MobileModeButton(
-            icon = Icons.Filled.DesktopWindows,
-            label = "Classic",
-            palette = palette,
-            onClick = onSwitchToClassic,
-        )
+        Column(
+            modifier = Modifier
+                .weight(1.2f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            chunkTopToolbarActions(scrollingActions, toolbarRows).forEach { rowActions ->
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    rowActions.forEach { action ->
+                        TopToolbarActionButton(
+                            action = action,
+                            buttonSize = buttonSize,
+                            contentMode = contentMode,
+                            palette = palette,
+                        )
+                    }
+                }
+            }
+        }
+        staticActions.forEach { action ->
+            TopToolbarActionButton(
+                action = action,
+                buttonSize = buttonSize,
+                contentMode = contentMode,
+                palette = palette,
+            )
+        }
         Box {
-            RoundIconButton(icon = Icons.Filled.MoreHoriz, label = "More", palette = palette, onClick = { quickOpen = true })
             DropdownMenu(
                 expanded = quickOpen,
                 onDismissRequest = { quickOpen = false },
@@ -1427,6 +1558,56 @@ private fun MobileTitleBar(
                 ClassicDropdownMenuItem("Rename current doc", Icons.Filled.Edit, palette) { runQuick(onRenameDocument) }
                 ClassicDropdownMenuItem("Close current doc", Icons.Filled.Close, palette, destructive = true) { runQuick(onCloseDocument) }
             }
+        }
+    }
+}
+
+private data class TopToolbarAction(
+    val id: TopToolbarButton,
+    val icon: ImageVector,
+    val label: String,
+    val enabled: Boolean = true,
+    val active: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun TopToolbarActionButton(
+    action: TopToolbarAction,
+    buttonSize: AccessoryToolbarButtonSize,
+    contentMode: AccessoryToolbarContentMode,
+    palette: Palette,
+) {
+    val color = when {
+        !action.enabled -> palette.mutedForeground.toColor().copy(alpha = 0.42f)
+        action.active -> palette.primary.toColor()
+        else -> palette.primary.toColor()
+    }
+    val showText = contentMode != AccessoryToolbarContentMode.ICON_ONLY
+    val width = accessoryToolbarButtonWidth(buttonSize, contentMode, action.label)
+    Row(
+        modifier = Modifier
+            .width(width)
+            .fillMaxHeight()
+            .background(if (action.active) palette.muted.toColor() else Color.Transparent, RoundedCornerShape(4.dp))
+            .clickable(enabled = action.enabled, onClick = action.onClick)
+            .padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(action.icon, contentDescription = action.label, tint = color, modifier = Modifier.size(buttonSize.iconDp.dp))
+        if (showText) {
+            Spacer(Modifier.width(3.dp))
+            Text(
+                text = action.label,
+                color = color,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = buttonSize.labelSp.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -1598,6 +1779,7 @@ private fun ClassicMenuBar(
     onPreferences: () -> Unit,
     onAppearancePreferences: () -> Unit,
     onToolbarPreferences: () -> Unit,
+    onTopToolbarPreferences: () -> Unit,
     onShowAbout: () -> Unit,
     onThemeSelect: (ThemeName) -> Unit,
     onCycleTheme: () -> Unit,
@@ -1621,6 +1803,7 @@ private fun ClassicMenuBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .height(25.dp)
             .background(
                 Brush.verticalGradient(
@@ -1799,6 +1982,7 @@ private fun ClassicMenuBar(
             ClassicDropdownSeparator(palette)
             ClassicDropdownSubmenuItem("Appearance", Icons.Filled.Palette, palette) {
                 ClassicDropdownMenuItem("Appearance preferences...", Icons.Filled.Settings, palette) { runMenuAction(onAppearancePreferences) }
+                ClassicDropdownMenuItem("Top toolbar preferences...", Icons.Filled.ViewHeadline, palette) { runMenuAction(onTopToolbarPreferences) }
                 ClassicDropdownMenuItem("Bottom toolbar preferences...", Icons.Filled.Keyboard, palette) { runMenuAction(onToolbarPreferences) }
                 ClassicDropdownSubmenuItem("Themes", Icons.Filled.Palette, palette) {
                     ClassicDropdownMenuItem("Next theme", Icons.Filled.Palette, palette) { runMenuAction(onCycleTheme) }
@@ -2820,8 +3004,15 @@ private fun PreferencesPage(
     onToolbarRowsUp: () -> Unit,
     onToolbarButtonSizeSelect: (AccessoryToolbarButtonSize) -> Unit,
     onToolbarContentModeSelect: (AccessoryToolbarContentMode) -> Unit,
+    onNavigationClusterSideSelect: (AccessoryNavigationClusterSide) -> Unit,
     onToggleStaticAccessoryButton: (AccessoryToolbarButton) -> Unit,
     onToggleHiddenAccessoryButton: (AccessoryToolbarButton) -> Unit,
+    onTopToolbarRowsDown: () -> Unit,
+    onTopToolbarRowsUp: () -> Unit,
+    onTopToolbarButtonSizeSelect: (AccessoryToolbarButtonSize) -> Unit,
+    onTopToolbarContentModeSelect: (AccessoryToolbarContentMode) -> Unit,
+    onToggleStaticTopToolbarButton: (TopToolbarButton) -> Unit,
+    onToggleHiddenTopToolbarButton: (TopToolbarButton) -> Unit,
     onFontSizeDown: () -> Unit,
     onFontSizeUp: () -> Unit,
     onEditorFontFamilySelect: (EditorFontFamily) -> Unit,
@@ -2873,11 +3064,13 @@ private fun PreferencesPage(
                         preferencesHomeRows().forEach { row ->
                             val target = when (row.title) {
                                 "Appearance" -> PreferencesDestination.APPEARANCE
+                                "Top Toolbar" -> PreferencesDestination.TOP_TOOLBAR
                                 "Bottom Toolbar" -> PreferencesDestination.TOOLBAR
                                 else -> PreferencesDestination.EDITOR
                             }
                             val icon = when (target) {
                                 PreferencesDestination.APPEARANCE -> Icons.Filled.Palette
+                                PreferencesDestination.TOP_TOOLBAR -> Icons.Filled.ViewHeadline
                                 PreferencesDestination.TOOLBAR -> Icons.Filled.Keyboard
                                 PreferencesDestination.EDITOR -> Icons.Filled.TextFields
                                 PreferencesDestination.GENERAL -> Icons.Filled.Settings
@@ -2915,6 +3108,57 @@ private fun PreferencesPage(
                         MenuActionRow(Icons.Filled.Keyboard, "Bottom toolbar preferences", palette, subtitle = "Rows, size, pinned buttons") {
                             onNavigate(PreferencesDestination.TOOLBAR)
                         }
+                        MenuActionRow(Icons.Filled.ViewHeadline, "Top toolbar preferences", palette, subtitle = "Rows, size, pinned buttons") {
+                            onNavigate(PreferencesDestination.TOP_TOOLBAR)
+                        }
+                    }
+
+                    PreferencesDestination.TOP_TOOLBAR -> {
+                        MenuSectionHeader("Top Toolbar", palette)
+                        PreferenceStepperRow(
+                            icon = Icons.Filled.ViewColumn,
+                            title = "Top toolbar rows",
+                            value = displayOptions.topToolbarRows.toString(),
+                            palette = palette,
+                            onDown = onTopToolbarRowsDown,
+                            onUp = onTopToolbarRowsUp,
+                        )
+                        AccessoryToolbarButtonSize.entries.forEach { size ->
+                            MenuActionRow(
+                                icon = Icons.Filled.FormatSize,
+                                title = "${size.displayTitle} buttons",
+                                palette = palette,
+                                checked = size == displayOptions.topToolbarButtonSize,
+                            ) { onTopToolbarButtonSizeSelect(size) }
+                        }
+                        AccessoryToolbarContentMode.entries.forEach { mode ->
+                            MenuActionRow(
+                                icon = mode.preferenceIcon,
+                                title = mode.displayTitle,
+                                palette = palette,
+                                checked = mode == displayOptions.topToolbarContentMode,
+                            ) { onTopToolbarContentModeSelect(mode) }
+                        }
+
+                        MenuSectionHeader("Pinned Buttons", palette)
+                        TopToolbarButton.entries.forEach { button ->
+                            MenuActionRow(
+                                icon = button.preferenceIcon,
+                                title = button.displayTitle,
+                                palette = palette,
+                                checked = button in displayOptions.staticTopToolbarButtons,
+                            ) { onToggleStaticTopToolbarButton(button) }
+                        }
+
+                        MenuSectionHeader("Hidden Buttons", palette)
+                        TopToolbarButton.entries.forEach { button ->
+                            MenuActionRow(
+                                icon = button.preferenceIcon,
+                                title = button.displayTitle,
+                                palette = palette,
+                                checked = button in displayOptions.hiddenTopToolbarButtons,
+                            ) { onToggleHiddenTopToolbarButton(button) }
+                        }
                     }
 
                     PreferencesDestination.TOOLBAR -> {
@@ -2945,6 +3189,14 @@ private fun PreferencesPage(
                                 palette = palette,
                                 checked = mode == displayOptions.accessoryToolbarContentMode,
                             ) { onToolbarContentModeSelect(mode) }
+                        }
+                        AccessoryNavigationClusterSide.entries.forEach { side ->
+                            MenuActionRow(
+                                icon = side.preferenceIcon,
+                                title = "Directional keys ${side.displayTitle.lowercase()}",
+                                palette = palette,
+                                checked = side == displayOptions.navigationClusterSide,
+                            ) { onNavigationClusterSideSelect(side) }
                         }
 
                         MenuSectionHeader("Pinned Buttons", palette)
@@ -3043,6 +3295,7 @@ private fun MorePanel(
     activeLanguage: DocumentLanguage,
     displayOptions: EditorDisplayOptions,
     trackpadActive: Boolean,
+    compareEnabled: Boolean,
     onDismiss: () -> Unit,
     onNew: () -> Unit,
     onOpenDocuments: () -> Unit,
@@ -3098,6 +3351,7 @@ private fun MorePanel(
     onPreferences: () -> Unit,
     onAppearancePreferences: () -> Unit,
     onToolbarPreferences: () -> Unit,
+    onTopToolbarPreferences: () -> Unit,
     onShowAbout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -3179,7 +3433,7 @@ private fun MorePanel(
                         "Search" -> when (title) {
                             "Find/Replace" -> MenuActionRow(Icons.Filled.Search, title, palette) { run(onFind) }
                             "Go to line" -> MenuActionRow(Icons.AutoMirrored.Filled.KeyboardTab, title, palette) { run(onGotoLine) }
-                            "Compare documents" -> MenuActionRow(Icons.Filled.ViewColumn, title, palette) { run(onCompare) }
+                            "Compare documents" -> MenuActionRow(Icons.Filled.ViewColumn, title, palette, enabled = compareEnabled) { run(onCompare) }
                         }
                         "View" -> when (title) {
                             "Read mode" -> MenuActionRow(if (readMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, title, palette, checked = readMode) { run(onToggleReadMode) }
@@ -3202,6 +3456,7 @@ private fun MorePanel(
                         "Settings" -> when (title) {
                             "Preferences" -> MenuActionRow(Icons.Filled.Settings, title, palette, subtitle = "Full-screen settings page") { run(onPreferences) }
                             "Appearance preferences" -> MenuActionRow(Icons.Filled.Palette, title, palette, subtitle = "Themes and layout") { run(onAppearancePreferences) }
+                            "Top toolbar preferences" -> MenuActionRow(Icons.Filled.ViewHeadline, title, palette, subtitle = "Rows, size, pinned buttons") { run(onTopToolbarPreferences) }
                             "Bottom toolbar preferences" -> MenuActionRow(Icons.Filled.Keyboard, title, palette, subtitle = "Rows, size, pinned buttons") { run(onToolbarPreferences) }
                             "Cycle theme" -> MenuActionRow(Icons.Filled.Palette, title, palette) { run(onCycleTheme) }
                         }
@@ -3728,6 +3983,8 @@ private fun MobileKeyboardAccessory(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onMoveRight: () -> Unit,
+    trackpadActive: Boolean,
+    onToggleTrackpad: () -> Unit,
     onPageUp: () -> Unit,
     onPageDown: () -> Unit,
     onHome: () -> Unit,
@@ -3879,6 +4136,7 @@ private fun MobileKeyboardAccessory(
         AccessoryToolbarAction(AccessoryToolbarButton.INSERT_DATE, Icons.Filled.AccessTime, "Date", enabled = !readOnly, onClick = onInsertDateTime),
         AccessoryToolbarAction(AccessoryToolbarButton.OPEN_DOCUMENTS, Icons.Filled.FolderOpen, "Open", onClick = onOpenDocuments),
         AccessoryToolbarAction(AccessoryToolbarButton.COMPARE, Icons.Filled.ViewColumn, "Compare", enabled = compareEnabled, active = compareActive, onClick = onCompare),
+        AccessoryToolbarAction(AccessoryToolbarButton.TRACKPAD, Icons.Filled.TouchApp, "Trackpad", active = trackpadActive, onClick = onToggleTrackpad),
         AccessoryToolbarAction(AccessoryToolbarButton.MORE, Icons.Filled.MoreHoriz, "More", onClick = onMore),
     )
     val visibleActions = allActions.filterNot { it.id in displayOptions.hiddenAccessoryButtons }
@@ -3896,7 +4154,10 @@ private fun MobileKeyboardAccessory(
             .padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (navigationStaticActions.isNotEmpty()) {
+        if (
+            navigationStaticActions.isNotEmpty() &&
+            displayOptions.navigationClusterSide == AccessoryNavigationClusterSide.LEFT
+        ) {
             AccessoryStaticCluster(
                 actions = navigationStaticActions,
                 toolbarRows = toolbarRows,
@@ -3953,6 +4214,24 @@ private fun MobileKeyboardAccessory(
                     }
                 }
             }
+        }
+        if (
+            navigationStaticActions.isNotEmpty() &&
+            displayOptions.navigationClusterSide == AccessoryNavigationClusterSide.RIGHT
+        ) {
+            Spacer(
+                Modifier
+                    .fillMaxHeight()
+                    .width(1.dp)
+                    .background(palette.border.toColor()),
+            )
+            AccessoryStaticCluster(
+                actions = navigationStaticActions,
+                toolbarRows = toolbarRows,
+                buttonSize = buttonSize,
+                contentMode = contentMode,
+                palette = palette,
+            )
         }
         Spacer(
             Modifier
@@ -4086,13 +4365,15 @@ private fun BonusKeyboardKeyButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val latestOnClick = rememberUpdatedState(onClick)
+    var repeatFiredDuringPress by remember { mutableStateOf(false) }
     if (key.repeatable) {
         LaunchedEffect(isPressed, enabled) {
             if (isPressed && enabled) {
-                latestOnClick.value()
+                repeatFiredDuringPress = false
                 delay(accessoryRepeatPressSpec.initialDelayMillis)
                 var iteration = 0
                 while (true) {
+                    repeatFiredDuringPress = true
                     latestOnClick.value()
                     delay(repeatDelayForIteration(iteration))
                     iteration += 1
@@ -4105,7 +4386,13 @@ private fun BonusKeyboardKeyButton(
             enabled = enabled,
             interactionSource = interactionSource,
             indication = null,
-            onClick = {},
+            onClick = {
+                if (repeatFiredDuringPress) {
+                    repeatFiredDuringPress = false
+                } else {
+                    latestOnClick.value()
+                }
+            },
         )
     } else {
         Modifier.clickable(enabled = enabled, onClick = onClick)
@@ -4286,13 +4573,15 @@ private fun AccessoryToolbarActionButton(
     val isPressed by interactionSource.collectIsPressedAsState()
     val latestOnClick = rememberUpdatedState(action.onClick)
     val repeats = action.id.repeatsOnHold
+    var repeatFiredDuringPress by remember { mutableStateOf(false) }
     if (repeats) {
         LaunchedEffect(isPressed, action.enabled) {
             if (isPressed && action.enabled) {
-                latestOnClick.value()
+                repeatFiredDuringPress = false
                 delay(accessoryRepeatPressSpec.initialDelayMillis)
                 var iteration = 0
                 while (true) {
+                    repeatFiredDuringPress = true
                     latestOnClick.value()
                     delay(repeatDelayForIteration(iteration))
                     iteration += 1
@@ -4305,7 +4594,13 @@ private fun AccessoryToolbarActionButton(
             enabled = action.enabled,
             interactionSource = interactionSource,
             indication = null,
-            onClick = {},
+            onClick = {
+                if (repeatFiredDuringPress) {
+                    repeatFiredDuringPress = false
+                } else {
+                    latestOnClick.value()
+                }
+            },
         )
     } else {
         Modifier.clickable(enabled = action.enabled) {
@@ -4433,6 +4728,21 @@ private fun chunkToolbarActions(
     val safeRows = rows.coerceIn(
         EditorDisplayOptions.MIN_ACCESSORY_TOOLBAR_ROWS,
         EditorDisplayOptions.MAX_ACCESSORY_TOOLBAR_ROWS,
+    )
+    if (actions.isEmpty()) return List(safeRows) { emptyList() }
+    val chunkSize = ((actions.size + safeRows - 1) / safeRows).coerceAtLeast(1)
+    return List(safeRows) { index ->
+        actions.drop(index * chunkSize).take(chunkSize)
+    }
+}
+
+private fun chunkTopToolbarActions(
+    actions: List<TopToolbarAction>,
+    rows: Int,
+): List<List<TopToolbarAction>> {
+    val safeRows = rows.coerceIn(
+        EditorDisplayOptions.MIN_TOP_TOOLBAR_ROWS,
+        EditorDisplayOptions.MAX_TOP_TOOLBAR_ROWS,
     )
     if (actions.isEmpty()) return List(safeRows) { emptyList() }
     val chunkSize = ((actions.size + safeRows - 1) / safeRows).coerceAtLeast(1)
@@ -4593,6 +4903,7 @@ private val PreferencesDestination.preferenceSubtitle: String
     get() = when (this) {
         PreferencesDestination.GENERAL -> ""
         PreferencesDestination.APPEARANCE -> "Themes and layout"
+        PreferencesDestination.TOP_TOOLBAR -> "Rows, size, pinned and hidden buttons"
         PreferencesDestination.TOOLBAR -> "Rows, size, pinned and hidden buttons"
         PreferencesDestination.EDITOR -> "Fonts, wrapping, line numbers"
     }
@@ -4636,6 +4947,7 @@ private val AccessoryToolbarButton.preferenceIcon: ImageVector
         AccessoryToolbarButton.INSERT_DATE -> Icons.Filled.AccessTime
         AccessoryToolbarButton.OPEN_DOCUMENTS -> Icons.Filled.FolderOpen
         AccessoryToolbarButton.COMPARE -> Icons.Filled.ViewColumn
+        AccessoryToolbarButton.TRACKPAD -> Icons.Filled.TouchApp
         AccessoryToolbarButton.MORE -> Icons.Filled.MoreHoriz
         AccessoryToolbarButton.SHIFT -> Icons.Filled.Keyboard
         AccessoryToolbarButton.MOVE_UP -> Icons.Filled.KeyboardArrowUp
@@ -4643,6 +4955,38 @@ private val AccessoryToolbarButton.preferenceIcon: ImageVector
         AccessoryToolbarButton.MOVE_LEFT -> Icons.AutoMirrored.Filled.KeyboardArrowLeft
         AccessoryToolbarButton.MOVE_DOWN -> Icons.Filled.KeyboardArrowDown
         AccessoryToolbarButton.MOVE_RIGHT -> Icons.AutoMirrored.Filled.KeyboardArrowRight
+    }
+
+private val TopToolbarButton.preferenceIcon: ImageVector
+    get() = when (this) {
+        TopToolbarButton.OPEN_DOCUMENTS -> Icons.AutoMirrored.Filled.List
+        TopToolbarButton.NEW_DOCUMENT -> Icons.AutoMirrored.Filled.NoteAdd
+        TopToolbarButton.FIND -> Icons.Filled.Search
+        TopToolbarButton.THEME -> Icons.Filled.Brightness6
+        TopToolbarButton.TRACKPAD -> Icons.Filled.TouchApp
+        TopToolbarButton.SWITCH_LAYOUT -> Icons.Filled.DesktopWindows
+        TopToolbarButton.PREFERENCES -> Icons.Filled.Settings
+        TopToolbarButton.COMPARE -> Icons.Filled.ViewColumn
+        TopToolbarButton.CHANGE_LANGUAGE -> Icons.Filled.Code
+        TopToolbarButton.GOTO_LINE -> Icons.AutoMirrored.Filled.KeyboardTab
+        TopToolbarButton.PREVIEW -> Icons.Filled.Visibility
+        TopToolbarButton.READ_MODE -> Icons.Filled.Visibility
+        TopToolbarButton.ZEN_MODE -> Icons.Filled.Fullscreen
+        TopToolbarButton.SORT_LINES -> Icons.Filled.SortByAlpha
+        TopToolbarButton.TRIM_SPACES -> Icons.AutoMirrored.Filled.FormatAlignLeft
+        TopToolbarButton.DUPLICATE_LINE -> Icons.Filled.AddBox
+        TopToolbarButton.DELETE_LINE -> Icons.Filled.IndeterminateCheckBox
+        TopToolbarButton.INSERT_DATE -> Icons.Filled.AccessTime
+        TopToolbarButton.DUPLICATE_DOCUMENT -> Icons.Filled.ContentCopy
+        TopToolbarButton.RENAME_DOCUMENT -> Icons.Filled.Edit
+        TopToolbarButton.CLOSE_DOCUMENT -> Icons.Filled.Close
+        TopToolbarButton.MORE -> Icons.Filled.MoreHoriz
+    }
+
+private val AccessoryNavigationClusterSide.preferenceIcon: ImageVector
+    get() = when (this) {
+        AccessoryNavigationClusterSide.LEFT -> Icons.AutoMirrored.Filled.KeyboardArrowLeft
+        AccessoryNavigationClusterSide.RIGHT -> Icons.AutoMirrored.Filled.KeyboardArrowRight
     }
 
 private fun bonusKeyboardIcon(action: BonusKeyboardAction): ImageVector? =

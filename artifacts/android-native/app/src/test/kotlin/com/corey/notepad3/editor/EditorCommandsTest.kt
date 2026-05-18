@@ -89,6 +89,14 @@ class EditorCommandsTest {
     }
 
     @Test
+    fun deletesBackwardAcrossWholeCodePoints() {
+        val result = EditorCommands.deleteBackward("a😀b", TextSelection(3))
+
+        assertEquals("ab", result.body)
+        assertEquals(TextSelection(1), result.selection)
+    }
+
+    @Test
     fun deletesCurrentSelectionInsteadOfPreviousCharacter() {
         val result = EditorCommands.deleteBackward("abcdef", TextSelection(2, 5))
 

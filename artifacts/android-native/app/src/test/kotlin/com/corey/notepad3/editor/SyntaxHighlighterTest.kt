@@ -67,6 +67,23 @@ class SyntaxHighlighterTest {
     }
 
     @Test
+    fun markupCommentsClaimMultipleLinesBeforeKeywordPasses() {
+        val text = """
+            <!--
+            if false
+            -->
+            <script>const ok = true</script>
+        """.trimIndent()
+
+        val ranges = SyntaxHighlighter.plan(text, DocumentLanguage.HTML)
+
+        assertHas(text, ranges, "<!--\nif false\n-->", HighlightCategory.COMMENT)
+        assertHas(text, ranges, "const", HighlightCategory.KEYWORD)
+        assertFalse(ranges.containsText(text, "if", HighlightCategory.KEYWORD))
+        assertFalse(ranges.containsText(text, "false", HighlightCategory.KEYWORD))
+    }
+
+    @Test
     fun skipsPlainAndMarkdownDocuments() {
         assertFalse(SyntaxHighlighter.supports(DocumentLanguage.PLAIN))
         assertFalse(SyntaxHighlighter.supports(DocumentLanguage.MARKDOWN))

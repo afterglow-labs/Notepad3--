@@ -134,7 +134,7 @@ object EditorCommands {
         }
         if (safeSelection.min == 0) return EditResult(body, safeSelection)
 
-        val nextCaret = safeSelection.min - 1
+        val nextCaret = Character.offsetByCodePoints(body, safeSelection.min, -1)
         val next = body.removeRange(nextCaret, safeSelection.min)
         return EditResult(next, TextSelection(nextCaret))
     }

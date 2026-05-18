@@ -61,6 +61,59 @@ class DocumentStoreTest {
     }
 
     @Test
+    fun backsUpCorruptSnapshotsBeforeStartingFresh() {
+        val directory = Files.createTempDirectory("np3")
+        val file = directory.resolve("documents-v1.json").toFile()
+        file.writeText("{ not json")
+
+        val store = DocumentStore(file, starterContent = StarterContent.BLANK)
+
+        val backup = directory.toFile().listFiles { _, name ->
+            name.startsWith("documents-v1.json.corrupt-")
+        }.orEmpty().single()
+        assertEquals("{ not json", backup.readText())
+        assertEquals("scratchpad.txt", store.activeDocument.title)
+        assertEquals("", store.activeDocument.body)
+    }
+
+    @Test
+    fun loadsSnapshotsWithDuplicateDocumentIdsSafely() {
+        val file = Files.createTempDirectory("np3").resolve("documents-v1.json").toFile()
+        file.writeText(
+            """
+                {
+                  "documents": [
+                    {
+                      "id": "same",
+                      "title": "one.txt",
+                      "body": "one",
+                      "createdAt": "2026-01-01T00:00:00Z",
+                      "updatedAt": "2026-01-01T00:00:00Z",
+                      "language": "PLAIN"
+                    },
+                    {
+                      "id": "same",
+                      "title": "two.txt",
+                      "body": "two",
+                      "createdAt": "2026-01-01T00:00:00Z",
+                      "updatedAt": "2026-01-01T00:00:00Z",
+                      "language": "PLAIN"
+                    }
+                  ],
+                  "activeId": "same"
+                }
+            """.trimIndent(),
+        )
+
+        val snapshot = DocumentStore(file).state.value
+
+        assertEquals(2, snapshot.documents.map { it.id }.toSet().size)
+        assertEquals("same", snapshot.activeId)
+        assertEquals("one.txt", snapshot.documents[0].title)
+        assertEquals("two.txt", snapshot.documents[1].title)
+    }
+
+    @Test
     fun importsDocumentsAndDetectsTheirLanguage() {
         val store = DocumentStore(Files.createTempDirectory("np3").resolve("documents-v1.json").toFile())
 
@@ -84,6 +137,18 @@ class DocumentStoreTest {
     }
 
     @Test
+    fun createsUntitledTextFilesWithoutReusingNamesAfterGaps() {
+        val store = DocumentStore(Files.createTempDirectory("np3").resolve("documents-v1.json").toFile())
+        val first = store.createBlank()
+        store.createBlank()
+        store.close(first.id)
+
+        val next = store.createBlank()
+
+        assertEquals("untitled-3.txt", next.title)
+    }
+
+    @Test
     fun duplicatesRenamesAndClosesDocumentsLikeTheIosStore() {
         val store = DocumentStore(Files.createTempDirectory("np3").resolve("documents-v1.json").toFile())
         store.importDocument(title = "main.py", body = "print('hi')")
@@ -101,5 +166,19 @@ class DocumentStoreTest {
         assertEquals(1, store.state.value.documents.size)
         assertEquals("scratchpad.txt", store.activeDocument.title)
         assertEquals("", store.activeDocument.body)
+    }
+
+    @Test
+    fun duplicatesDocumentsWithoutReusingCopyNames() {
+        val store = DocumentStore(Files.createTempDirectory("np3").resolve("documents-v1.json").toFile())
+        store.importDocument(title = "main.py", body = "print('hi')")
+
+        val first = store.duplicateActive()
+        store.setActive("welcome")
+        store.setActive(store.state.value.documents.first { it.title == "main.py" }.id)
+        val second = store.duplicateActive()
+
+        assertEquals("main copy.py", first.title)
+        assertEquals("main copy 2.py", second.title)
     }
 }

@@ -27,6 +27,7 @@ internal enum class PreferencesDestination(
 ) {
     GENERAL("Preferences"),
     APPEARANCE("Appearance"),
+    TOP_TOOLBAR("Top Toolbar"),
     TOOLBAR("Bottom Toolbar"),
     EDITOR("Editor"),
 }
@@ -118,6 +119,8 @@ internal fun classicSettingsSubmenus(): List<ClassicSubmenuSpec> =
         ClassicSubmenuSpec(
             title = "Appearance",
             rows = listOf(
+                "Appearance preferences...",
+                "Top toolbar preferences...",
                 "Bottom toolbar preferences...",
                 "Themes",
             ).map(::MobileMenuRow),
@@ -127,6 +130,7 @@ internal fun classicSettingsSubmenus(): List<ClassicSubmenuSpec> =
 internal fun preferencesHomeRows(): List<MobileMenuRow> =
     listOf(
         MobileMenuRow("Appearance"),
+        MobileMenuRow("Top Toolbar"),
         MobileMenuRow("Bottom Toolbar"),
         MobileMenuRow("Editor"),
     )
@@ -234,6 +238,7 @@ private fun menuBarSections(): List<MobileMenuSection> =
             rows = listOf(
                 "Preferences",
                 "Appearance preferences",
+                "Top toolbar preferences",
                 "Bottom toolbar preferences",
                 "Cycle theme",
             ).map(::MobileMenuRow),

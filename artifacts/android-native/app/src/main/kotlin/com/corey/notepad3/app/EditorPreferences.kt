@@ -21,6 +21,7 @@ enum class AccessoryToolbarButton(val storageName: String, val displayTitle: Str
     INSERT_DATE("insert_date", "Date"),
     OPEN_DOCUMENTS("open_documents", "Open"),
     COMPARE("compare", "Compare"),
+    TRACKPAD("trackpad", "Trackpad"),
     MORE("more", "More"),
     SHIFT("shift", "Shift"),
     MOVE_UP("move_up", "Up"),
@@ -48,6 +49,48 @@ enum class AccessoryToolbarButton(val storageName: String, val displayTitle: Str
                 "undo_redo" -> setOf(UNDO, REDO)
                 else -> fromStorageName(value)?.let(::setOf) ?: emptySet()
             }
+    }
+}
+
+enum class TopToolbarButton(val storageName: String, val displayTitle: String) {
+    OPEN_DOCUMENTS("open_documents", "Tabs"),
+    NEW_DOCUMENT("new_document", "New"),
+    FIND("find", "Find"),
+    THEME("theme", "Theme"),
+    TRACKPAD("trackpad", "Trackpad"),
+    SWITCH_LAYOUT("switch_layout", "Classic"),
+    PREFERENCES("preferences", "Preferences"),
+    COMPARE("compare", "Compare"),
+    CHANGE_LANGUAGE("change_language", "Language"),
+    GOTO_LINE("goto_line", "Go to"),
+    PREVIEW("preview", "Preview"),
+    READ_MODE("read_mode", "Read"),
+    ZEN_MODE("zen_mode", "Zen"),
+    SORT_LINES("sort_lines", "Sort"),
+    TRIM_SPACES("trim_spaces", "Trim"),
+    DUPLICATE_LINE("duplicate_line", "Duplicate line"),
+    DELETE_LINE("delete_line", "Delete line"),
+    INSERT_DATE("insert_date", "Date"),
+    DUPLICATE_DOCUMENT("duplicate_document", "Duplicate doc"),
+    RENAME_DOCUMENT("rename_document", "Rename"),
+    CLOSE_DOCUMENT("close_document", "Close"),
+    MORE("more", "More"),
+    ;
+
+    companion object {
+        fun fromStorageName(value: String): TopToolbarButton? =
+            entries.firstOrNull { it.storageName == value }
+    }
+}
+
+enum class AccessoryNavigationClusterSide(val storageName: String, val displayTitle: String) {
+    LEFT("left", "Left"),
+    RIGHT("right", "Right"),
+    ;
+
+    companion object {
+        fun fromStorageName(value: String): AccessoryNavigationClusterSide? =
+            entries.firstOrNull { it.storageName == value }
     }
 }
 
@@ -98,8 +141,14 @@ data class EditorDisplayOptions(
     val accessoryToolbarRows: Int = DEFAULT_ACCESSORY_TOOLBAR_ROWS,
     val accessoryToolbarButtonSize: AccessoryToolbarButtonSize = AccessoryToolbarButtonSize.MEDIUM,
     val accessoryToolbarContentMode: AccessoryToolbarContentMode = AccessoryToolbarContentMode.ICON_AND_TEXT,
+    val navigationClusterSide: AccessoryNavigationClusterSide = AccessoryNavigationClusterSide.LEFT,
     val staticAccessoryButtons: Set<AccessoryToolbarButton> = DEFAULT_STATIC_ACCESSORY_BUTTONS,
     val hiddenAccessoryButtons: Set<AccessoryToolbarButton> = emptySet(),
+    val topToolbarRows: Int = DEFAULT_TOP_TOOLBAR_ROWS,
+    val topToolbarButtonSize: AccessoryToolbarButtonSize = AccessoryToolbarButtonSize.MEDIUM,
+    val topToolbarContentMode: AccessoryToolbarContentMode = AccessoryToolbarContentMode.ICON_AND_TEXT,
+    val staticTopToolbarButtons: Set<TopToolbarButton> = DEFAULT_STATIC_TOP_TOOLBAR_BUTTONS,
+    val hiddenTopToolbarButtons: Set<TopToolbarButton> = DEFAULT_HIDDEN_TOP_TOOLBAR_BUTTONS,
 ) {
     fun withFontDelta(delta: Int): EditorDisplayOptions =
         copy(fontSizeSp = (fontSizeSp + delta).coerceIn(MIN_FONT_SIZE_SP, MAX_FONT_SIZE_SP))
@@ -109,6 +158,12 @@ data class EditorDisplayOptions(
 
     fun withAccessoryToolbarRows(rows: Int): EditorDisplayOptions =
         copy(accessoryToolbarRows = rows.coerceIn(MIN_ACCESSORY_TOOLBAR_ROWS, MAX_ACCESSORY_TOOLBAR_ROWS))
+
+    fun withTopToolbarRowDelta(delta: Int): EditorDisplayOptions =
+        withTopToolbarRows(topToolbarRows + delta)
+
+    fun withTopToolbarRows(rows: Int): EditorDisplayOptions =
+        copy(topToolbarRows = rows.coerceIn(MIN_TOP_TOOLBAR_ROWS, MAX_TOP_TOOLBAR_ROWS))
 
     fun toggledStaticAccessoryButton(button: AccessoryToolbarButton): EditorDisplayOptions =
         if (button in staticAccessoryButtons) {
@@ -130,6 +185,26 @@ data class EditorDisplayOptions(
             )
         }
 
+    fun toggledStaticTopToolbarButton(button: TopToolbarButton): EditorDisplayOptions =
+        if (button in staticTopToolbarButtons) {
+            copy(staticTopToolbarButtons = staticTopToolbarButtons - button)
+        } else {
+            copy(
+                staticTopToolbarButtons = staticTopToolbarButtons + button,
+                hiddenTopToolbarButtons = hiddenTopToolbarButtons - button,
+            )
+        }
+
+    fun toggledHiddenTopToolbarButton(button: TopToolbarButton): EditorDisplayOptions =
+        if (button in hiddenTopToolbarButtons) {
+            copy(hiddenTopToolbarButtons = hiddenTopToolbarButtons - button)
+        } else {
+            copy(
+                hiddenTopToolbarButtons = hiddenTopToolbarButtons + button,
+                staticTopToolbarButtons = staticTopToolbarButtons - button,
+            )
+        }
+
     companion object {
         const val MIN_FONT_SIZE_SP = 11
         const val DEFAULT_FONT_SIZE_SP = 15
@@ -137,6 +212,9 @@ data class EditorDisplayOptions(
         const val MIN_ACCESSORY_TOOLBAR_ROWS = 1
         const val DEFAULT_ACCESSORY_TOOLBAR_ROWS = 2
         const val MAX_ACCESSORY_TOOLBAR_ROWS = 3
+        const val MIN_TOP_TOOLBAR_ROWS = 1
+        const val DEFAULT_TOP_TOOLBAR_ROWS = 1
+        const val MAX_TOP_TOOLBAR_ROWS = 3
         val DEFAULT_STATIC_ACCESSORY_BUTTONS: Set<AccessoryToolbarButton> = setOf(
             AccessoryToolbarButton.SHIFT,
             AccessoryToolbarButton.MOVE_UP,
@@ -147,6 +225,20 @@ data class EditorDisplayOptions(
             AccessoryToolbarButton.MOVE_RIGHT,
             AccessoryToolbarButton.REDO,
         )
+        val DEFAULT_TOP_TOOLBAR_BUTTONS: Set<TopToolbarButton> = setOf(
+            TopToolbarButton.OPEN_DOCUMENTS,
+            TopToolbarButton.NEW_DOCUMENT,
+            TopToolbarButton.FIND,
+            TopToolbarButton.THEME,
+            TopToolbarButton.TRACKPAD,
+            TopToolbarButton.SWITCH_LAYOUT,
+            TopToolbarButton.MORE,
+        )
+        val DEFAULT_STATIC_TOP_TOOLBAR_BUTTONS: Set<TopToolbarButton> = setOf(
+            TopToolbarButton.MORE,
+        )
+        val DEFAULT_HIDDEN_TOP_TOOLBAR_BUTTONS: Set<TopToolbarButton> =
+            TopToolbarButton.entries.toSet() - DEFAULT_TOP_TOOLBAR_BUTTONS
         val LEGACY_DEFAULT_STATIC_ACCESSORY_BUTTONS: Set<AccessoryToolbarButton> = setOf(
             AccessoryToolbarButton.SHIFT,
             AccessoryToolbarButton.MOVE_UP,
@@ -213,12 +305,36 @@ class EditorPreferenceController(private val preferences: EditorPreferences) {
         setDisplayOptions(displayOptions.value.copy(accessoryToolbarContentMode = mode))
     }
 
+    fun setNavigationClusterSide(side: AccessoryNavigationClusterSide) {
+        setDisplayOptions(displayOptions.value.copy(navigationClusterSide = side))
+    }
+
     fun toggleStaticAccessoryButton(button: AccessoryToolbarButton) {
         setDisplayOptions(displayOptions.value.toggledStaticAccessoryButton(button))
     }
 
     fun toggleHiddenAccessoryButton(button: AccessoryToolbarButton) {
         setDisplayOptions(displayOptions.value.toggledHiddenAccessoryButton(button))
+    }
+
+    fun adjustTopToolbarRows(delta: Int) {
+        setDisplayOptions(displayOptions.value.withTopToolbarRowDelta(delta))
+    }
+
+    fun setTopToolbarButtonSize(size: AccessoryToolbarButtonSize) {
+        setDisplayOptions(displayOptions.value.copy(topToolbarButtonSize = size))
+    }
+
+    fun setTopToolbarContentMode(mode: AccessoryToolbarContentMode) {
+        setDisplayOptions(displayOptions.value.copy(topToolbarContentMode = mode))
+    }
+
+    fun toggleStaticTopToolbarButton(button: TopToolbarButton) {
+        setDisplayOptions(displayOptions.value.toggledStaticTopToolbarButton(button))
+    }
+
+    fun toggleHiddenTopToolbarButton(button: TopToolbarButton) {
+        setDisplayOptions(displayOptions.value.toggledHiddenTopToolbarButton(button))
     }
 }
 
@@ -264,8 +380,14 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
             .putInt(KEY_ACCESSORY_TOOLBAR_ROWS, options.accessoryToolbarRows)
             .putString(KEY_ACCESSORY_TOOLBAR_BUTTON_SIZE, options.accessoryToolbarButtonSize.storageName)
             .putString(KEY_ACCESSORY_TOOLBAR_CONTENT_MODE, options.accessoryToolbarContentMode.storageName)
+            .putString(KEY_NAVIGATION_CLUSTER_SIDE, options.navigationClusterSide.storageName)
             .putString(KEY_STATIC_ACCESSORY_BUTTONS, encodeAccessoryButtons(options.staticAccessoryButtons))
             .putString(KEY_HIDDEN_ACCESSORY_BUTTONS, encodeAccessoryButtons(options.hiddenAccessoryButtons))
+            .putInt(KEY_TOP_TOOLBAR_ROWS, options.topToolbarRows)
+            .putString(KEY_TOP_TOOLBAR_BUTTON_SIZE, options.topToolbarButtonSize.storageName)
+            .putString(KEY_TOP_TOOLBAR_CONTENT_MODE, options.topToolbarContentMode.storageName)
+            .putString(KEY_STATIC_TOP_TOOLBAR_BUTTONS, encodeTopToolbarButtons(options.staticTopToolbarButtons))
+            .putString(KEY_HIDDEN_TOP_TOOLBAR_BUTTONS, encodeTopToolbarButtons(options.hiddenTopToolbarButtons))
             .apply()
         _displayOptions.value = options
         _layoutMode.value = options.layoutMode
@@ -299,10 +421,34 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
             accessoryToolbarContentMode = stringPreference(KEY_ACCESSORY_TOOLBAR_CONTENT_MODE)
                 ?.let(AccessoryToolbarContentMode::fromStorageName)
                 ?: AccessoryToolbarContentMode.ICON_AND_TEXT,
+            navigationClusterSide = stringPreference(KEY_NAVIGATION_CLUSTER_SIDE)
+                ?.let(AccessoryNavigationClusterSide::fromStorageName)
+                ?: AccessoryNavigationClusterSide.LEFT,
             staticAccessoryButtons = decodeStaticAccessoryButtons(),
             hiddenAccessoryButtons = decodeAccessoryButtons(
                 key = KEY_HIDDEN_ACCESSORY_BUTTONS,
                 fallback = emptySet(),
+            ),
+            topToolbarRows = intPreference(
+                KEY_TOP_TOOLBAR_ROWS,
+                EditorDisplayOptions.DEFAULT_TOP_TOOLBAR_ROWS,
+            ).coerceIn(
+                EditorDisplayOptions.MIN_TOP_TOOLBAR_ROWS,
+                EditorDisplayOptions.MAX_TOP_TOOLBAR_ROWS,
+            ),
+            topToolbarButtonSize = stringPreference(KEY_TOP_TOOLBAR_BUTTON_SIZE)
+                ?.let(AccessoryToolbarButtonSize::fromStorageName)
+                ?: AccessoryToolbarButtonSize.MEDIUM,
+            topToolbarContentMode = stringPreference(KEY_TOP_TOOLBAR_CONTENT_MODE)
+                ?.let(AccessoryToolbarContentMode::fromStorageName)
+                ?: AccessoryToolbarContentMode.ICON_AND_TEXT,
+            staticTopToolbarButtons = decodeTopToolbarButtons(
+                key = KEY_STATIC_TOP_TOOLBAR_BUTTONS,
+                fallback = EditorDisplayOptions.DEFAULT_STATIC_TOP_TOOLBAR_BUTTONS,
+            ),
+            hiddenTopToolbarButtons = decodeTopToolbarButtons(
+                key = KEY_HIDDEN_TOP_TOOLBAR_BUTTONS,
+                fallback = EditorDisplayOptions.DEFAULT_HIDDEN_TOP_TOOLBAR_BUTTONS,
             ),
         )
 
@@ -341,6 +487,24 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
     private fun encodeAccessoryButtons(buttons: Set<AccessoryToolbarButton>): String =
         buttons.joinToString(",") { it.storageName }
 
+    private fun decodeTopToolbarButtons(
+        key: String,
+        fallback: Set<TopToolbarButton>,
+    ): Set<TopToolbarButton> =
+        stringPreference(key)
+            ?.let(::decodeTopToolbarButtonSet)
+            ?: fallback
+
+    private fun decodeTopToolbarButtonSet(raw: String): Set<TopToolbarButton> {
+        if (raw.isBlank()) return emptySet()
+        return raw.split(",")
+            .mapNotNull { TopToolbarButton.fromStorageName(it.trim()) }
+            .toSet()
+    }
+
+    private fun encodeTopToolbarButtons(buttons: Set<TopToolbarButton>): String =
+        buttons.joinToString(",") { it.storageName }
+
     private fun stringPreference(key: String): String? =
         prefs.getString(key, null) ?: legacyPrefs.getString(legacyKey(key), null)
 
@@ -367,7 +531,13 @@ class AndroidEditorPreferences(context: Context) : EditorPreferences {
         private const val KEY_ACCESSORY_TOOLBAR_ROWS = "notepad3.accessoryToolbarRows"
         private const val KEY_ACCESSORY_TOOLBAR_BUTTON_SIZE = "notepad3.accessoryToolbarButtonSize"
         private const val KEY_ACCESSORY_TOOLBAR_CONTENT_MODE = "notepad3.accessoryToolbarContentMode"
+        private const val KEY_NAVIGATION_CLUSTER_SIDE = "notepad3.navigationClusterSide"
         private const val KEY_STATIC_ACCESSORY_BUTTONS = "notepad3.staticAccessoryButtons"
         private const val KEY_HIDDEN_ACCESSORY_BUTTONS = "notepad3.hiddenAccessoryButtons"
+        private const val KEY_TOP_TOOLBAR_ROWS = "notepad3.topToolbarRows"
+        private const val KEY_TOP_TOOLBAR_BUTTON_SIZE = "notepad3.topToolbarButtonSize"
+        private const val KEY_TOP_TOOLBAR_CONTENT_MODE = "notepad3.topToolbarContentMode"
+        private const val KEY_STATIC_TOP_TOOLBAR_BUTTONS = "notepad3.staticTopToolbarButtons"
+        private const val KEY_HIDDEN_TOP_TOOLBAR_BUTTONS = "notepad3.hiddenTopToolbarButtons"
     }
 }

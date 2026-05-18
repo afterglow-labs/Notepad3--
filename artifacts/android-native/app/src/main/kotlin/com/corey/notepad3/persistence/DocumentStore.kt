@@ -4,12 +4,13 @@ import com.corey.notepad3.models.DocumentLanguage
 import com.corey.notepad3.models.DocumentSnapshot
 import com.corey.notepad3.models.StarterContent
 import com.corey.notepad3.models.TextDocument
-import com.corey.notepad3.models.duplicateTitle
+import com.corey.notepad3.models.duplicateTitleFor
 import com.corey.notepad3.models.nextUntitledName
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +25,7 @@ class DocumentStore(
     private var pendingPersistSnapshot: DocumentSnapshot? = null
 
     private val json = Json {
+        coerceInputValues = true
         ignoreUnknownKeys = true
         prettyPrint = true
     }
@@ -122,8 +124,8 @@ class DocumentStore(
         val source = activeDocument
         val now = Instant.now()
         val duplicate = source.copy(
-            id = java.util.UUID.randomUUID().toString(),
-            title = source.duplicateTitle(),
+            id = UUID.randomUUID().toString(),
+            title = _state.value.documents.duplicateTitleFor(source),
             createdAt = now,
             updatedAt = now,
         )
@@ -179,19 +181,54 @@ class DocumentStore(
     }
 
     private fun loadSnapshot(): DocumentSnapshot {
-        val loaded = runCatching {
-            json.decodeFromString<DocumentSnapshot>(file.readText())
-        }.getOrNull()
-
-        if (loaded != null && loaded.documents.isNotEmpty()) {
-            val activeId = loaded.activeId.takeIf { active ->
-                loaded.documents.any { it.id == active }
-            } ?: loaded.documents.first().id
-            return loaded.copy(activeId = activeId)
+        val loaded = if (file.exists()) {
+            val decoded = runCatching {
+                json.decodeFromString<DocumentSnapshot>(file.readText())
+            }
+            if (decoded.isFailure) {
+                backupUnreadableSnapshot()
+            }
+            decoded.getOrNull()
+        } else {
+            null
         }
+
+        normalizeSnapshot(loaded)?.let { return it }
 
         val starter = TextDocument.scratchpad(starterContent)
         return DocumentSnapshot(documents = listOf(starter), activeId = starter.id)
+    }
+
+    private fun normalizeSnapshot(snapshot: DocumentSnapshot?): DocumentSnapshot? {
+        if (snapshot == null || snapshot.documents.isEmpty()) return null
+
+        val seenIds = mutableSetOf<String>()
+        val documents = snapshot.documents.map { document ->
+            val existingId = document.id.takeIf { it.isNotBlank() && seenIds.add(it) }
+            val id = existingId ?: nextUniqueId(seenIds)
+            if (id == document.id) document else document.copy(id = id)
+        }
+        val activeId = snapshot.activeId.takeIf { active ->
+            documents.any { it.id == active }
+        } ?: documents.first().id
+        return snapshot.copy(documents = documents, activeId = activeId)
+    }
+
+    private fun nextUniqueId(seenIds: MutableSet<String>): String {
+        while (true) {
+            val id = UUID.randomUUID().toString()
+            if (seenIds.add(id)) return id
+        }
+    }
+
+    private fun backupUnreadableSnapshot() {
+        if (!file.exists()) return
+
+        val directory = file.parentFile ?: File(".")
+        val backup = File(directory, "${file.name}.corrupt-${System.currentTimeMillis()}")
+        runCatching {
+            file.copyTo(backup, overwrite = false)
+        }
     }
 
     private fun persist(snapshot: DocumentSnapshot) {
