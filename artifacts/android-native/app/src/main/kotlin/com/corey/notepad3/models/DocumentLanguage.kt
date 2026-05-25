@@ -59,6 +59,9 @@ enum class DocumentLanguage(
     @SerialName("SQL")
     SQL("SQL", "--"),
 
+    @SerialName("Playlist")
+    PLAYLIST("Playlist", "#"),
+
     @SerialName("YAML")
     YAML("YAML", "#"),
 
@@ -112,6 +115,7 @@ enum class DocumentLanguage(
             SHELL,
             POWERSHELL,
             SQL,
+            PLAYLIST,
             YAML,
             TOML,
             INI,
@@ -142,6 +146,7 @@ enum class DocumentLanguage(
                 base.matchesExtension("php", "phtml", "php3", "php4", "php5") -> PHP
                 base.matchesExtension("ps1", "psm1", "psd1") -> POWERSHELL
                 base.matchesExtension("sql") -> SQL
+                base.matchesExtension("m3u", "m3u8") -> PLAYLIST
                 base.matchesExtension("yml", "yaml") -> YAML
                 base.matchesExtension("toml") -> TOML
                 base.matchesExtension("c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx") -> C_PLUS_PLUS

@@ -19,6 +19,7 @@ enum NoteLanguage: String, Codable, CaseIterable {
     case shell = "Shell"
     case powerShell = "PowerShell"
     case sql = "SQL"
+    case playlist = "Playlist"
     case yaml = "YAML"
     case toml = "TOML"
     case ini = "INI"
@@ -51,6 +52,7 @@ enum NoteLanguage: String, Codable, CaseIterable {
         .shell,
         .powerShell,
         .sql,
+        .playlist,
         .yaml,
         .toml,
         .ini,
@@ -79,6 +81,7 @@ enum NoteLanguage: String, Codable, CaseIterable {
         if base.range(of: #"\.(php|phtml|php3|php4|php5)$"#, options: .regularExpression) != nil { return .php }
         if base.range(of: #"\.(ps1|psm1|psd1)$"#, options: .regularExpression) != nil { return .powerShell }
         if base.range(of: #"\.sql$"#, options: .regularExpression) != nil { return .sql }
+        if base.range(of: #"\.(m3u|m3u8)$"#, options: .regularExpression) != nil { return .playlist }
         if base.range(of: #"\.(yml|yaml)$"#, options: .regularExpression) != nil { return .yaml }
         if base.range(of: #"\.toml$"#, options: .regularExpression) != nil { return .toml }
         if base.range(of: #"\.(py|pyw)$"#, options: .regularExpression) != nil { return .python }
@@ -152,7 +155,7 @@ enum NoteLanguage: String, Codable, CaseIterable {
     var commentPrefixes: [String] {
         switch self {
         case .assembly: return [";"]
-        case .python, .ruby, .shell, .powerShell, .yaml, .toml, .dockerfile: return ["#"]
+        case .python, .ruby, .shell, .powerShell, .playlist, .yaml, .toml, .dockerfile: return ["#"]
         case .ini: return [";", "#"]
         case .sql: return ["--"]
         case .html, .xml: return ["<!--"]

@@ -33,6 +33,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = nav
         window.makeKeyAndVisible()
         self.window = window
+        importFirstDocumentURL(from: connectionOptions.urlContexts)
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        importFirstDocumentURL(from: URLContexts)
     }
 
     func sceneWillResignActive(_ scene: UIScene) {
@@ -41,5 +46,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         NotesStore.shared.flushPendingPersistence()
+    }
+
+    private func importFirstDocumentURL(from contexts: Set<UIOpenURLContext>) {
+        guard let url = contexts.first?.url else { return }
+        do {
+            try NotesStore.shared.importFile(at: url)
+        } catch {
+            presentImportError(error)
+        }
+    }
+
+    private func presentImportError(_ error: Error) {
+        let alert = UIAlertController(title: "Couldn't open file", message: error.localizedDescription, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        window?.rootViewController?.present(alert, animated: true)
     }
 }

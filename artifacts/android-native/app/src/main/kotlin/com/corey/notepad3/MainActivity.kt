@@ -2,6 +2,7 @@ package com.corey.notepad3
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.result.ActivityResultLauncher
@@ -59,6 +60,13 @@ class MainActivity : ComponentActivity() {
                 onCloseApp = ::finishAndRemoveTask,
             )
         }
+        handleIncomingIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
     }
 
     override fun onStop() {
@@ -66,10 +74,49 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    private fun handleIncomingIntent(incomingIntent: Intent?) {
+        if (incomingIntent == null) return
+        val streamUri = incomingIntent.sharedStreamUri()
+        val sharedText = incomingIntent.getStringExtra(Intent.EXTRA_TEXT)
+        val canImport = DocumentImport.canImportFromIncomingIntent(
+            action = incomingIntent.action,
+            hasDataUri = incomingIntent.data != null,
+            hasStreamUri = streamUri != null,
+            hasPlainText = !sharedText.isNullOrBlank(),
+        )
+        if (!canImport) return
+
+        when (incomingIntent.action) {
+            Intent.ACTION_VIEW,
+            Intent.ACTION_EDIT,
+            -> incomingIntent.data?.let(::importDocument)
+            Intent.ACTION_SEND -> {
+                when {
+                    streamUri != null -> importDocument(streamUri)
+                    !sharedText.isNullOrBlank() -> {
+                        documentStore.importDocument(title = sharedTextTitle(incomingIntent), body = sharedText)
+                    }
+                }
+            }
+        }
+        setIntent(Intent(Intent.ACTION_MAIN))
+    }
+
     private fun importDocument(uri: Uri) {
-        val body = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: return
+        val body = contentResolver.openInputStream(uri)?.use { stream ->
+            stream.readBytes().toString(Charsets.UTF_8)
+        } ?: return
         documentStore.importDocument(title = displayName(uri), body = body)
     }
+
+    private fun sharedTextTitle(intent: Intent): String =
+        intent.getStringExtra(Intent.EXTRA_TITLE)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: intent.getStringExtra(Intent.EXTRA_SUBJECT)
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            ?: "shared.txt"
 
     private fun beginExportDocument(document: TextDocument) {
         documentStore.flushPendingChanges()
@@ -99,4 +146,12 @@ class MainActivity : ComponentActivity() {
         }
         return uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { null } ?: "untitled.txt"
     }
+
+    @Suppress("DEPRECATION")
+    private fun Intent.sharedStreamUri(): Uri? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+        }
 }

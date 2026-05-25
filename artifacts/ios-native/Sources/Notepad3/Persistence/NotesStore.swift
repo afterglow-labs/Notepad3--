@@ -160,6 +160,23 @@ final class NotesStore {
         return note
     }
 
+    @discardableResult
+    func importFile(at sourceURL: URL) throws -> Note {
+        let didStartAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let data = try Data(contentsOf: sourceURL)
+        let text = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .isoLatin1)
+            ?? ""
+        let title = sourceURL.lastPathComponent.isEmpty ? "untitled.txt" : sourceURL.lastPathComponent
+        return importNote(title: title, body: text, language: NoteLanguage.detect(fromFileName: title))
+    }
+
     func delete(id: String) {
         guard notes.count > 1 else {
             // Keep at least one note around — replace with a fresh blank.

@@ -171,7 +171,8 @@ class EditorPreferencesTest {
         assertTrue(displayTitles.contains("Hide"))
         assertTrue(displayTitles.contains("Undo"))
         assertTrue(displayTitles.contains("Redo"))
-        assertTrue(displayTitles.contains("Trackpad"))
+        assertTrue(displayTitles.contains("Mouse"))
+        assertFalse(displayTitles.contains("Trackpad"))
         assertFalse(displayTitles.contains("Undo/Redo"))
         assertTrue(AccessoryToolbarButton.entries.map { it.storageName }.contains("undo"))
         assertTrue(AccessoryToolbarButton.entries.map { it.storageName }.contains("redo"))
@@ -182,8 +183,8 @@ class EditorPreferencesTest {
     }
 
     @Test
-    fun topToolbarExposesTrackpadAsADefaultVisibleButton() {
-        assertTrue(TopToolbarButton.entries.map { it.displayTitle }.contains("Trackpad"))
+    fun topToolbarExposesVirtualMouseAsADefaultVisibleButton() {
+        assertTrue(TopToolbarButton.entries.map { it.displayTitle }.contains("Mouse"))
         assertTrue(EditorDisplayOptions.DEFAULT_TOP_TOOLBAR_BUTTONS.contains(TopToolbarButton.TRACKPAD))
         assertFalse(EditorDisplayOptions.DEFAULT_HIDDEN_TOP_TOOLBAR_BUTTONS.contains(TopToolbarButton.TRACKPAD))
     }

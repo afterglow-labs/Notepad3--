@@ -239,7 +239,7 @@ final class ClassicToolbar: UIView {
             .button(ClassicToolbarItemSpec(id: "tb-cmp",     symbol: "rectangle.split.2x1",             label: "Compare")          { [weak self] in self?.onCompare?() }),
             .button(ClassicToolbarItemSpec(id: "tb-read",    symbol: readSymbol,                        label: "Read mode")        { [weak self] in self?.onToggleReadMode?(); self?.refresh() }),
             .button(ClassicToolbarItemSpec(id: "tb-zen",     symbol: "rectangle.compress.vertical",     label: "Zen mode")         { [weak self] in self?.onToggleZenMode?(); self?.refresh() }),
-            .button(ClassicToolbarItemSpec(id: "tb-mouse",   symbol: "rectangle.and.hand.point.up.left", label: "Trackpad")        { [weak self] in self?.onToggleTrackpad?(); self?.refresh() }),
+            .button(ClassicToolbarItemSpec(id: "tb-mouse",   symbol: "rectangle.and.hand.point.up.left", label: "Mouse")           { [weak self] in self?.onToggleTrackpad?(); self?.refresh() }),
             .separator,
 
             // Settings / overflow

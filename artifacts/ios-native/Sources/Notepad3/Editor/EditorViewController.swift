@@ -763,7 +763,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         let compareItem = UIAction(title: "Compare documents", image: UIImage(systemName: "rectangle.split.1x2")) { [weak self] _ in self?.presentCompare() }
         let languageItem = UIAction(title: "Change language", image: UIImage(systemName: "curlybraces")) { [weak self] _ in self?.presentLanguagePicker() }
         let gotoItem = UIAction(title: "Go to line…", image: UIImage(systemName: "arrow.down.to.line")) { [weak self] _ in self?.presentGotoLine() }
-        let trackpadItem = UIAction(title: "Virtual trackpad", image: UIImage(systemName: "rectangle.and.hand.point.up.left")) { [weak self] _ in self?.toggleTrackpad() }
+        let trackpadItem = UIAction(title: "Virtual mouse", image: UIImage(systemName: "rectangle.and.hand.point.up.left")) { [weak self] _ in self?.toggleTrackpad() }
         let previewItem = UIAction(
             title: previewMode ? "Edit markdown" : "Preview markdown",
             image: UIImage(systemName: previewMode ? "pencil" : "eye.fill"),
@@ -1722,7 +1722,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                 SheetRow(icon: readMode ? "eye.slash" : "eye", title: "Read mode", checked: readMode) { [weak self] in self?.readMode.toggle() },
                 SheetRow(icon: "rectangle.compress.vertical", title: "Zen mode", checked: zenMode) { [weak self] in self?.setZenMode(!(self?.zenMode ?? false)) },
                 SheetRow(icon: "rectangle.split.1x2", title: "Compare documents") { [weak self] in self?.presentCompare() },
-                SheetRow(icon: "rectangle.and.hand.point.up.left", title: "Virtual trackpad", checked: virtualTrackpad != nil) { [weak self] in self?.toggleTrackpad() },
+            SheetRow(icon: "rectangle.and.hand.point.up.left", title: "Virtual mouse", checked: virtualTrackpad != nil) { [weak self] in self?.toggleTrackpad() },
                 SheetRow(icon: previewMode ? "pencil" : "eye.fill", title: previewMode ? "Edit markdown" : "Preview markdown", checked: previewMode) { [weak self] in self?.togglePreviewMode() },
                 SheetRow(icon: "macwindow", title: "Switch to classic layout") { [weak self] in self?.prefs.layoutMode = .classic },
             ]),
@@ -1778,7 +1778,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             message: """
             A pocket text editor that captures the feel of classic desktop notepad utilities.
 
-            Multi-document tabs, find/replace, top/bottom diff, file import, line tools, syntax coloring, markdown preview, and a simulated trackpad for desktop nostalgia.
+            Multi-document tabs, find/replace, top/bottom diff, file import, line tools, syntax coloring, markdown preview, and a simulated mouse for desktop-style precision.
 
             Version 1.1.0
             """,
@@ -1865,12 +1865,7 @@ extension EditorViewController: UIDocumentPickerDelegate {
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let url = urls.first else { return }
         do {
-            let data = try Data(contentsOf: url)
-            let text = String(data: data, encoding: .utf8)
-                ?? String(data: data, encoding: .isoLatin1)
-                ?? ""
-            let language = NoteLanguage.detect(fromFileName: url.lastPathComponent)
-            store.importNote(title: url.lastPathComponent, body: text, language: language)
+            try store.importFile(at: url)
             Haptics.success()
         } catch {
             Haptics.error()

@@ -119,7 +119,7 @@ final class VirtualTrackpad: UIView {
         header.addSubview(headerIcon)
 
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerLabel.text = "Trackpad"
+        headerLabel.text = "Mouse"
         headerLabel.font = .systemFont(ofSize: 11, weight: .medium)
         headerLabel.numberOfLines = 1
         headerLabel.lineBreakMode = .byTruncatingTail
@@ -131,7 +131,7 @@ final class VirtualTrackpad: UIView {
                                   withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
         anchorCfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
         anchorButton.configuration = anchorCfg
-        anchorButton.accessibilityLabel = "Anchor trackpad"
+        anchorButton.accessibilityLabel = "Anchor virtual mouse"
         anchorButton.addTarget(self, action: #selector(anchorTapped), for: .touchUpInside)
         header.addSubview(anchorButton)
 
@@ -141,7 +141,7 @@ final class VirtualTrackpad: UIView {
                                 withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
         sizeCfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
         sizeButton.configuration = sizeCfg
-        sizeButton.accessibilityLabel = "Cycle trackpad size"
+        sizeButton.accessibilityLabel = "Cycle virtual mouse size"
         sizeButton.addTarget(self, action: #selector(sizeTapped), for: .touchUpInside)
         header.addSubview(sizeButton)
 
@@ -151,7 +151,7 @@ final class VirtualTrackpad: UIView {
                                  withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
         closeCfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
         closeButton.configuration = closeCfg
-        closeButton.accessibilityLabel = "Hide trackpad"
+        closeButton.accessibilityLabel = "Hide virtual mouse"
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         header.addSubview(closeButton)
 
@@ -484,8 +484,8 @@ final class VirtualTrackpad: UIView {
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
         )
         anchorButton.configuration = cfg
-        anchorButton.accessibilityLabel = isAnchored ? "Unanchor trackpad" : "Anchor trackpad"
-        headerLabel.text = isAnchored ? "Trackpad  anchored" : "Trackpad  drag header"
+        anchorButton.accessibilityLabel = isAnchored ? "Unanchor virtual mouse" : "Anchor virtual mouse"
+        headerLabel.text = isAnchored ? "Mouse  anchored" : "Mouse  drag header"
     }
 }
 

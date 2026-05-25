@@ -81,6 +81,10 @@ class DocumentExportTest {
             DocumentExport.mimeTypeFor(TextDocument(title = "schema.sql", language = DocumentLanguage.SQL)),
         )
         assertEquals(
+            "application/vnd.apple.mpegurl",
+            DocumentExport.mimeTypeFor(TextDocument(title = "radio.m3u8", language = DocumentLanguage.PLAYLIST)),
+        )
+        assertEquals(
             "application/yaml",
             DocumentExport.mimeTypeFor(TextDocument(title = "workflow.yml", language = DocumentLanguage.YAML)),
         )

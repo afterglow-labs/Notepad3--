@@ -28,6 +28,31 @@ targets:
         CFBundleDisplayName: Notepad 3
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Text and playlist files
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.text
+              - public.plain-text
+              - public.source-code
+              - public.data
+              - com.corey.ios.notepad3.m3u-playlist
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.corey.ios.notepad3.m3u-playlist
+            UTTypeDescription: M3U playlist
+            UTTypeConformsTo:
+              - public.text
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - m3u
+                - m3u8
+              public.mime-type:
+                - audio/x-mpegurl
+                - audio/mpegurl
+                - application/x-mpegurl
+                - application/vnd.apple.mpegurl
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIApplicationSceneManifest:

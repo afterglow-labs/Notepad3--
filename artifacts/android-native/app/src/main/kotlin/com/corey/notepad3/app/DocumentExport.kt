@@ -56,6 +56,8 @@ object DocumentExport {
             title.endsWithAny(".ps1", ".psm1", ".psd1") ||
                 document.language == DocumentLanguage.POWERSHELL -> "text/x-powershell"
             title.endsWith(".sql") || document.language == DocumentLanguage.SQL -> "application/sql"
+            title.endsWithAny(".m3u", ".m3u8") ||
+                document.language == DocumentLanguage.PLAYLIST -> "application/vnd.apple.mpegurl"
             title.endsWithAny(".yml", ".yaml") || document.language == DocumentLanguage.YAML -> "application/yaml"
             title.endsWith(".toml") || document.language == DocumentLanguage.TOML -> "application/toml"
             title.endsWithAny(".ini", ".cfg", ".conf") ||

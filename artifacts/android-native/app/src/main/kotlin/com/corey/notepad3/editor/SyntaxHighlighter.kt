@@ -156,6 +156,7 @@ object SyntaxHighlighter {
             DocumentLanguage.YAML,
             DocumentLanguage.TOML,
             DocumentLanguage.DOCKERFILE,
+            DocumentLanguage.PLAYLIST,
             -> listOf("#")
             DocumentLanguage.INI -> listOf(";", "#")
             DocumentLanguage.SQL -> listOf("--")
@@ -219,6 +220,7 @@ object SyntaxHighlighter {
             DocumentLanguage.TOML,
             DocumentLanguage.INI,
             DocumentLanguage.DOCKERFILE,
+            DocumentLanguage.PLAYLIST,
             DocumentLanguage.HTML,
             DocumentLanguage.CSS,
             DocumentLanguage.XML,
@@ -258,6 +260,7 @@ object SyntaxHighlighter {
             -> commonKeywords + markupKeywords
             DocumentLanguage.PLAIN,
             DocumentLanguage.MARKDOWN,
+            DocumentLanguage.PLAYLIST,
             -> emptySet()
         }
 

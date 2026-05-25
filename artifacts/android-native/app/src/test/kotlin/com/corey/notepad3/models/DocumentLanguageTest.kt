@@ -25,6 +25,8 @@ class DocumentLanguageTest {
         assertEquals(DocumentLanguage.SHELL, DocumentLanguage.detect(".zshrc"))
         assertEquals(DocumentLanguage.POWERSHELL, DocumentLanguage.detect("profile.ps1"))
         assertEquals(DocumentLanguage.SQL, DocumentLanguage.detect("schema.sql"))
+        assertEquals(DocumentLanguage.PLAYLIST, DocumentLanguage.detect("radio.m3u"))
+        assertEquals(DocumentLanguage.PLAYLIST, DocumentLanguage.detect("favorites.M3U8"))
         assertEquals(DocumentLanguage.YAML, DocumentLanguage.detect("workflow.yml"))
         assertEquals(DocumentLanguage.TOML, DocumentLanguage.detect("pyproject.toml"))
         assertEquals(DocumentLanguage.INI, DocumentLanguage.detect(".editorconfig"))
@@ -51,6 +53,7 @@ class DocumentLanguageTest {
         assertEquals("#", DocumentLanguage.SHELL.lineCommentPrefix)
         assertEquals("#", DocumentLanguage.POWERSHELL.lineCommentPrefix)
         assertEquals("--", DocumentLanguage.SQL.lineCommentPrefix)
+        assertEquals("#", DocumentLanguage.PLAYLIST.lineCommentPrefix)
         assertEquals("#", DocumentLanguage.YAML.lineCommentPrefix)
         assertEquals("#", DocumentLanguage.TOML.lineCommentPrefix)
         assertEquals(";", DocumentLanguage.INI.lineCommentPrefix)
@@ -72,6 +75,7 @@ class DocumentLanguageTest {
         assertEquals(true, DocumentLanguage.selectableLanguages.contains(DocumentLanguage.RUST))
         assertEquals(true, DocumentLanguage.selectableLanguages.contains(DocumentLanguage.GO))
         assertEquals(true, DocumentLanguage.selectableLanguages.contains(DocumentLanguage.SQL))
+        assertEquals(true, DocumentLanguage.selectableLanguages.contains(DocumentLanguage.PLAYLIST))
         assertEquals(true, DocumentLanguage.selectableLanguages.contains(DocumentLanguage.DOCKERFILE))
     }
 }
